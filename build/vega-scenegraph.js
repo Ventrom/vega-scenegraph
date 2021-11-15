@@ -1,270 +1,72 @@
 (function (global, factory) {
-  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('vega-util'), require('vega-canvas'), require('vega-loader'), require('d3-shape'), require('d3-path')) :
-  typeof define === 'function' && define.amd ? define(['exports', 'vega-util', 'vega-canvas', 'vega-loader', 'd3-shape', 'd3-path'], factory) :
-  (factory((global.vega = {}),global.vega,global.vega,global.vega,global.d3,global.d3));
-}(this, (function (exports,vegaUtil,vegaCanvas,vegaLoader,d3Shape,d3Path) { 'use strict';
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('vega-util'), require('d3-shape'), require('d3-path'), require('vega-canvas'), require('vega-loader'), require('vega-scale')) :
+  typeof define === 'function' && define.amd ? define(['exports', 'vega-util', 'd3-shape', 'd3-path', 'vega-canvas', 'vega-loader', 'vega-scale'], factory) :
+  (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.vega = {}, global.vega, global.d3, global.d3, global.vega, global.vega, global.vega));
+}(this, (function (exports, vegaUtil, d3Shape, d3Path, vegaCanvas, vegaLoader, vegaScale) { 'use strict';
 
-  function Bounds(b) {
-    this.clear();
-    if (b) this.union(b);
+  let gradient_id = 0;
+  function resetSVGGradientId() {
+    gradient_id = 0;
+  }
+  const patternPrefix = 'p_';
+  function isGradient(value) {
+    return value && value.gradient;
+  }
+  function gradientRef(g, defs, base) {
+    const type = g.gradient;
+    let id = g.id,
+        prefix = type === 'radial' ? patternPrefix : ''; // check id, assign default values as needed
+
+    if (!id) {
+      id = g.id = 'gradient_' + gradient_id++;
+
+      if (type === 'radial') {
+        g.x1 = get(g.x1, 0.5);
+        g.y1 = get(g.y1, 0.5);
+        g.r1 = get(g.r1, 0);
+        g.x2 = get(g.x2, 0.5);
+        g.y2 = get(g.y2, 0.5);
+        g.r2 = get(g.r2, 0.5);
+        prefix = patternPrefix;
+      } else {
+        g.x1 = get(g.x1, 0);
+        g.y1 = get(g.y1, 0);
+        g.x2 = get(g.x2, 1);
+        g.y2 = get(g.y2, 0);
+      }
+    } // register definition
+
+
+    defs[id] = g; // return url reference
+
+    return 'url(' + (base || '') + '#' + prefix + id + ')';
   }
 
-  var prototype = Bounds.prototype;
+  function get(val, def) {
+    return val != null ? val : def;
+  }
 
-  prototype.clone = function() {
-    return new Bounds(this);
-  };
-
-  prototype.clear = function() {
-    this.x1 = +Number.MAX_VALUE;
-    this.y1 = +Number.MAX_VALUE;
-    this.x2 = -Number.MAX_VALUE;
-    this.y2 = -Number.MAX_VALUE;
-    return this;
-  };
-
-  prototype.empty = function() {
-    return (
-      this.x1 === +Number.MAX_VALUE &&
-      this.y1 === +Number.MAX_VALUE &&
-      this.x2 === -Number.MAX_VALUE &&
-      this.y2 === -Number.MAX_VALUE
-    );
-  };
-
-  prototype.set = function(x1, y1, x2, y2) {
-    if (x2 < x1) {
-      this.x2 = x1;
-      this.x1 = x2;
-    } else {
-      this.x1 = x1;
-      this.x2 = x2;
-    }
-    if (y2 < y1) {
-      this.y2 = y1;
-      this.y1 = y2;
-    } else {
-      this.y1 = y1;
-      this.y2 = y2;
-    }
-    return this;
-  };
-
-  prototype.add = function(x, y) {
-    if (x < this.x1) this.x1 = x;
-    if (y < this.y1) this.y1 = y;
-    if (x > this.x2) this.x2 = x;
-    if (y > this.y2) this.y2 = y;
-    return this;
-  };
-
-  prototype.expand = function(d) {
-    this.x1 -= d;
-    this.y1 -= d;
-    this.x2 += d;
-    this.y2 += d;
-    return this;
-  };
-
-  prototype.round = function() {
-    this.x1 = Math.floor(this.x1);
-    this.y1 = Math.floor(this.y1);
-    this.x2 = Math.ceil(this.x2);
-    this.y2 = Math.ceil(this.y2);
-    return this;
-  };
-
-  prototype.translate = function(dx, dy) {
-    this.x1 += dx;
-    this.x2 += dx;
-    this.y1 += dy;
-    this.y2 += dy;
-    return this;
-  };
-
-  prototype.rotate = function(angle, x, y) {
-    var cos = Math.cos(angle),
-        sin = Math.sin(angle),
-        cx = x - x*cos + y*sin,
-        cy = y - x*sin - y*cos,
-        x1 = this.x1, x2 = this.x2,
-        y1 = this.y1, y2 = this.y2;
-
-    return this.clear()
-      .add(cos*x1 - sin*y1 + cx,  sin*x1 + cos*y1 + cy)
-      .add(cos*x1 - sin*y2 + cx,  sin*x1 + cos*y2 + cy)
-      .add(cos*x2 - sin*y1 + cx,  sin*x2 + cos*y1 + cy)
-      .add(cos*x2 - sin*y2 + cx,  sin*x2 + cos*y2 + cy);
-  };
-
-  prototype.union = function(b) {
-    if (b.x1 < this.x1) this.x1 = b.x1;
-    if (b.y1 < this.y1) this.y1 = b.y1;
-    if (b.x2 > this.x2) this.x2 = b.x2;
-    if (b.y2 > this.y2) this.y2 = b.y2;
-    return this;
-  };
-
-  prototype.intersect = function(b) {
-    if (b.x1 > this.x1) this.x1 = b.x1;
-    if (b.y1 > this.y1) this.y1 = b.y1;
-    if (b.x2 < this.x2) this.x2 = b.x2;
-    if (b.y2 < this.y2) this.y2 = b.y2;
-    return this;
-  };
-
-  prototype.encloses = function(b) {
-    return b && (
-      this.x1 <= b.x1 &&
-      this.x2 >= b.x2 &&
-      this.y1 <= b.y1 &&
-      this.y2 >= b.y2
-    );
-  };
-
-  prototype.alignsWith = function(b) {
-    return b && (
-      this.x1 == b.x1 ||
-      this.x2 == b.x2 ||
-      this.y1 == b.y1 ||
-      this.y2 == b.y2
-    );
-  };
-
-  prototype.intersects = function(b) {
-    return b && !(
-      this.x2 < b.x1 ||
-      this.x1 > b.x2 ||
-      this.y2 < b.y1 ||
-      this.y1 > b.y2
-    );
-  };
-
-  prototype.contains = function(x, y) {
-    return !(
-      x < this.x1 ||
-      x > this.x2 ||
-      y < this.y1 ||
-      y > this.y2
-    );
-  };
-
-  prototype.width = function() {
-    return this.x2 - this.x1;
-  };
-
-  prototype.height = function() {
-    return this.y2 - this.y1;
-  };
-
-  var gradient_id = 0;
-
-  function Gradient(p0, p1) {
-    var stops = [], gradient;
+  function Gradient (p0, p1) {
+    var stops = [],
+        gradient;
     return gradient = {
-      id: 'gradient_' + (gradient_id++),
+      gradient: 'linear',
       x1: p0 ? p0[0] : 0,
       y1: p0 ? p0[1] : 0,
       x2: p1 ? p1[0] : 1,
       y2: p1 ? p1[1] : 0,
       stops: stops,
-      stop: function(offset, color) {
-        stops.push({offset: offset, color: color});
+      stop: function (offset, color) {
+        stops.push({
+          offset: offset,
+          color: color
+        });
         return gradient;
       }
     };
   }
 
-  function Item(mark) {
-    this.mark = mark;
-    this.bounds = (this.bounds || new Bounds());
-  }
-
-  function GroupItem(mark) {
-    Item.call(this, mark);
-    this.items = (this.items || []);
-  }
-
-  vegaUtil.inherits(GroupItem, Item);
-
-  function ResourceLoader(customLoader) {
-    this._pending = 0;
-    this._loader = customLoader || vegaLoader.loader();
-  }
-
-  var prototype$1 = ResourceLoader.prototype;
-
-  prototype$1.pending = function() {
-    return this._pending;
-  };
-
-  function increment(loader) {
-    loader._pending += 1;
-  }
-
-  function decrement(loader) {
-    loader._pending -= 1;
-  }
-
-  prototype$1.sanitizeURL = function(uri) {
-    var loader = this;
-    increment(loader);
-
-    return loader._loader.sanitize(uri, {context:'href'})
-      .then(function(opt) {
-        decrement(loader);
-        return opt;
-      })
-      .catch(function() {
-        decrement(loader);
-        return null;
-      });
-  };
-
-  prototype$1.loadImage = function(uri) {
-    var loader = this,
-        Image = vegaCanvas.image();
-    increment(loader);
-
-    return loader._loader
-      .sanitize(uri, {context: 'image'})
-      .then(function(opt) {
-        var url = opt.href;
-        if (!url || !Image) throw {url: url};
-
-        var img = new Image();
-
-        img.onload = function() {
-          decrement(loader);
-          img.loaded = true;
-        };
-
-        img.onerror = function() {
-          decrement(loader);
-          img.loaded = false;
-        };
-
-        img.src = url;
-        return img;
-      })
-      .catch(function(e) {
-        decrement(loader);
-        return {loaded: false, width: 0, height: 0, src: e && e.url || ''};
-      });
-  };
-
-  prototype$1.ready = function() {
-    var loader = this;
-    return new Promise(function(accept) {
-      function poll(value) {
-        if (!loader.pending()) accept(value);
-        else setTimeout(function() { poll(true); }, 10);
-      }
-      poll(false);
-    });
-  };
-
-  var lookup = {
+  const lookup = {
     'basis': {
       curve: d3Shape.curveBasis
     },
@@ -317,7 +119,7 @@
     },
     'monotone': {
       horizontal: d3Shape.curveMonotoneY,
-      vertical:   d3Shape.curveMonotoneX
+      vertical: d3Shape.curveMonotoneX
     },
     'natural': {
       curve: d3Shape.curveNatural
@@ -332,13 +134,13 @@
       curve: d3Shape.curveStepBefore
     }
   };
-
   function curves(type, orientation, tension) {
-    var entry = lookup.hasOwnProperty(type) && lookup[type],
+    var entry = vegaUtil.hasOwnProperty(lookup, type) && lookup[type],
         curve = null;
 
     if (entry) {
       curve = entry.curve || entry[orientation || 'vertical'];
+
       if (entry.tension && tension != null) {
         curve = curve[entry.tension](tension);
       }
@@ -348,48 +150,50 @@
   }
 
   // Path parsing and rendering code adapted from fabric.js -- Thanks!
-  var cmdlen = { m:2, l:2, h:1, v:1, c:6, s:4, q:4, t:2, a:7 },
-      regexp = [/([MLHVCSQTAZmlhvcsqtaz])/g, /###/, /(\d)([-+])/g, /\s|,|###/];
+  const cmdlen = {
+    m: 2,
+    l: 2,
+    h: 1,
+    v: 1,
+    c: 6,
+    s: 4,
+    q: 4,
+    t: 2,
+    a: 7
+  },
+        regexp = [/([MLHVCSQTAZmlhvcsqtaz])/g, /###/, /(\.\d+)(\.\d)/g, /(\d)([-+])/g, /\s|,|###/];
+  function pathParse (pathstr) {
+    const result = [];
+    let curr, chunks, parsed, param, cmd, len, i, j, n, m; // First, break path into command sequence
 
-  function pathParse(pathstr) {
-    var result = [],
-        path,
-        curr,
-        chunks,
-        parsed, param,
-        cmd, len, i, j, n, m;
+    const path = pathstr.slice().replace(regexp[0], '###$1').split(regexp[1]).slice(1); // Next, parse each command in turn
 
-    // First, break path into command sequence
-    path = pathstr
-      .slice()
-      .replace(regexp[0], '###$1')
-      .split(regexp[1])
-      .slice(1);
-
-    // Next, parse each command in turn
-    for (i=0, n=path.length; i<n; ++i) {
+    for (i = 0, n = path.length; i < n; ++i) {
       curr = path[i];
-      chunks = curr
-        .slice(1)
-        .trim()
-        .replace(regexp[2],'$1###$2')
-        .split(regexp[3]);
+      chunks = curr.slice(1).trim().replace(regexp[2], '$1###$2').replace(regexp[3], '$1###$2').split(regexp[4]);
       cmd = curr.charAt(0);
-
       parsed = [cmd];
-      for (j=0, m=chunks.length; j<m; ++j) {
-        if ((param = +chunks[j]) === param) { // not NaN
+
+      for (j = 0, m = chunks.length; j < m; ++j) {
+        if ((param = +chunks[j]) === param) {
+          // not NaN
           parsed.push(param);
         }
       }
 
       len = cmdlen[cmd.toLowerCase()];
-      if (parsed.length-1 > len) {
-        for (j=1, m=parsed.length; j<m; j+=len) {
-          result.push([cmd].concat(parsed.slice(j, j+len)));
+
+      if (parsed.length - 1 > len) {
+        const m = parsed.length;
+        j = 1;
+        result.push([cmd].concat(parsed.slice(j, j += len))); // handle implicit lineTo (#2803)
+
+        cmd = cmd === 'M' ? 'L' : cmd === 'm' ? 'l' : cmd;
+
+        for (; j < m; j += len) {
+          result.push([cmd].concat(parsed.slice(j, j + len)));
         }
-      }
-      else {
+      } else {
         result.push(parsed);
       }
     }
@@ -397,72 +201,77 @@
     return result;
   }
 
+  const DegToRad = Math.PI / 180;
+  const Epsilon = 1e-14;
+  const HalfPi = Math.PI / 2;
+  const Tau = Math.PI * 2;
+  const HalfSqrt3 = Math.sqrt(3) / 2;
+
   var segmentCache = {};
   var bezierCache = {};
+  var join = [].join; // Copied from Inkscape svgtopdf, thanks!
 
-  var join = [].join;
-
-  // Copied from Inkscape svgtopdf, thanks!
   function segments(x, y, rx, ry, large, sweep, rotateX, ox, oy) {
-    var key = join.call(arguments);
+    const key = join.call(arguments);
+
     if (segmentCache[key]) {
       return segmentCache[key];
     }
 
-    var th = rotateX * (Math.PI/180);
-    var sin_th = Math.sin(th);
-    var cos_th = Math.cos(th);
+    const th = rotateX * DegToRad;
+    const sin_th = Math.sin(th);
+    const cos_th = Math.cos(th);
     rx = Math.abs(rx);
     ry = Math.abs(ry);
-    var px = cos_th * (ox - x) * 0.5 + sin_th * (oy - y) * 0.5;
-    var py = cos_th * (oy - y) * 0.5 - sin_th * (ox - x) * 0.5;
-    var pl = (px*px) / (rx*rx) + (py*py) / (ry*ry);
+    const px = cos_th * (ox - x) * 0.5 + sin_th * (oy - y) * 0.5;
+    const py = cos_th * (oy - y) * 0.5 - sin_th * (ox - x) * 0.5;
+    let pl = px * px / (rx * rx) + py * py / (ry * ry);
+
     if (pl > 1) {
       pl = Math.sqrt(pl);
       rx *= pl;
       ry *= pl;
     }
 
-    var a00 = cos_th / rx;
-    var a01 = sin_th / rx;
-    var a10 = (-sin_th) / ry;
-    var a11 = (cos_th) / ry;
-    var x0 = a00 * ox + a01 * oy;
-    var y0 = a10 * ox + a11 * oy;
-    var x1 = a00 * x + a01 * y;
-    var y1 = a10 * x + a11 * y;
-
-    var d = (x1-x0) * (x1-x0) + (y1-y0) * (y1-y0);
-    var sfactor_sq = 1 / d - 0.25;
+    const a00 = cos_th / rx;
+    const a01 = sin_th / rx;
+    const a10 = -sin_th / ry;
+    const a11 = cos_th / ry;
+    const x0 = a00 * ox + a01 * oy;
+    const y0 = a10 * ox + a11 * oy;
+    const x1 = a00 * x + a01 * y;
+    const y1 = a10 * x + a11 * y;
+    const d = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0);
+    let sfactor_sq = 1 / d - 0.25;
     if (sfactor_sq < 0) sfactor_sq = 0;
-    var sfactor = Math.sqrt(sfactor_sq);
+    let sfactor = Math.sqrt(sfactor_sq);
     if (sweep == large) sfactor = -sfactor;
-    var xc = 0.5 * (x0 + x1) - sfactor * (y1-y0);
-    var yc = 0.5 * (y0 + y1) + sfactor * (x1-x0);
+    const xc = 0.5 * (x0 + x1) - sfactor * (y1 - y0);
+    const yc = 0.5 * (y0 + y1) + sfactor * (x1 - x0);
+    const th0 = Math.atan2(y0 - yc, x0 - xc);
+    const th1 = Math.atan2(y1 - yc, x1 - xc);
+    let th_arc = th1 - th0;
 
-    var th0 = Math.atan2(y0-yc, x0-xc);
-    var th1 = Math.atan2(y1-yc, x1-xc);
-
-    var th_arc = th1-th0;
     if (th_arc < 0 && sweep === 1) {
-      th_arc += 2 * Math.PI;
+      th_arc += Tau;
     } else if (th_arc > 0 && sweep === 0) {
-      th_arc -= 2 * Math.PI;
+      th_arc -= Tau;
     }
 
-    var segs = Math.ceil(Math.abs(th_arc / (Math.PI * 0.5 + 0.001)));
-    var result = [];
-    for (var i=0; i<segs; ++i) {
-      var th2 = th0 + i * th_arc / segs;
-      var th3 = th0 + (i+1) * th_arc / segs;
+    const segs = Math.ceil(Math.abs(th_arc / (HalfPi + 0.001)));
+    const result = [];
+
+    for (let i = 0; i < segs; ++i) {
+      const th2 = th0 + i * th_arc / segs;
+      const th3 = th0 + (i + 1) * th_arc / segs;
       result[i] = [xc, yc, th2, th3, rx, ry, sin_th, cos_th];
     }
 
-    return (segmentCache[key] = result);
+    return segmentCache[key] = result;
   }
-
   function bezier(params) {
-    var key = join.call(params);
+    const key = join.call(params);
+
     if (bezierCache[key]) {
       return bezierCache[key];
     }
@@ -475,242 +284,221 @@
         ry = params[5],
         sin_th = params[6],
         cos_th = params[7];
-
-    var a00 = cos_th * rx;
-    var a01 = -sin_th * ry;
-    var a10 = sin_th * rx;
-    var a11 = cos_th * ry;
-
-    var cos_th0 = Math.cos(th0);
-    var sin_th0 = Math.sin(th0);
-    var cos_th1 = Math.cos(th1);
-    var sin_th1 = Math.sin(th1);
-
-    var th_half = 0.5 * (th1 - th0);
-    var sin_th_h2 = Math.sin(th_half * 0.5);
-    var t = (8/3) * sin_th_h2 * sin_th_h2 / Math.sin(th_half);
-    var x1 = cx + cos_th0 - t * sin_th0;
-    var y1 = cy + sin_th0 + t * cos_th0;
-    var x3 = cx + cos_th1;
-    var y3 = cy + sin_th1;
-    var x2 = x3 + t * sin_th1;
-    var y2 = y3 - t * cos_th1;
-
-    return (bezierCache[key] = [
-      a00 * x1 + a01 * y1,  a10 * x1 + a11 * y1,
-      a00 * x2 + a01 * y2,  a10 * x2 + a11 * y2,
-      a00 * x3 + a01 * y3,  a10 * x3 + a11 * y3
-    ]);
+    const a00 = cos_th * rx;
+    const a01 = -sin_th * ry;
+    const a10 = sin_th * rx;
+    const a11 = cos_th * ry;
+    const cos_th0 = Math.cos(th0);
+    const sin_th0 = Math.sin(th0);
+    const cos_th1 = Math.cos(th1);
+    const sin_th1 = Math.sin(th1);
+    const th_half = 0.5 * (th1 - th0);
+    const sin_th_h2 = Math.sin(th_half * 0.5);
+    const t = 8 / 3 * sin_th_h2 * sin_th_h2 / Math.sin(th_half);
+    const x1 = cx + cos_th0 - t * sin_th0;
+    const y1 = cy + sin_th0 + t * cos_th0;
+    const x3 = cx + cos_th1;
+    const y3 = cy + sin_th1;
+    const x2 = x3 + t * sin_th1;
+    const y2 = y3 - t * cos_th1;
+    return bezierCache[key] = [a00 * x1 + a01 * y1, a10 * x1 + a11 * y1, a00 * x2 + a01 * y2, a10 * x2 + a11 * y2, a00 * x3 + a01 * y3, a10 * x3 + a11 * y3];
   }
 
-  var temp = ['l', 0, 0, 0, 0, 0, 0, 0];
+  const temp = ['l', 0, 0, 0, 0, 0, 0, 0];
 
-  function scale(current, s) {
-    var c = (temp[0] = current[0]);
+  function scale$1(current, sX, sY) {
+    const c = temp[0] = current[0];
+
     if (c === 'a' || c === 'A') {
-      temp[1] = s * current[1];
-      temp[2] = s * current[2];
+      temp[1] = sX * current[1];
+      temp[2] = sY * current[2];
       temp[3] = current[3];
       temp[4] = current[4];
       temp[5] = current[5];
-      temp[6] = s * current[6];
-      temp[7] = s * current[7];
+      temp[6] = sX * current[6];
+      temp[7] = sY * current[7];
+    } else if (c === 'h' || c === 'H') {
+      temp[1] = sX * current[1];
+    } else if (c === 'v' || c === 'V') {
+      temp[1] = sY * current[1];
     } else {
-      for (var i=1, n=current.length; i<n; ++i) {
-        temp[i] = s * current[i];
+      for (var i = 1, n = current.length; i < n; ++i) {
+        temp[i] = (i % 2 == 1 ? sX : sY) * current[i];
       }
     }
+
     return temp;
   }
 
-  function pathRender(context, path, l, t, s) {
-    var current, // current instruction
-        previous = null,
-        x = 0, // current x
-        y = 0, // current y
-        controlX = 0, // current control point x
-        controlY = 0, // current control point y
-        tempX,
+  function pathRender (context, path, l, t, sX, sY) {
+    var current,
+        // current instruction
+    previous = null,
+        x = 0,
+        // current x
+    y = 0,
+        // current y
+    controlX = 0,
+        // current control point x
+    controlY = 0,
+        // current control point y
+    tempX,
         tempY,
         tempControlX,
         tempControlY;
-
     if (l == null) l = 0;
     if (t == null) t = 0;
-    if (s == null) s = 1;
-
+    if (sX == null) sX = 1;
+    if (sY == null) sY = sX;
     if (context.beginPath) context.beginPath();
 
-    for (var i=0, len=path.length; i<len; ++i) {
+    for (var i = 0, len = path.length; i < len; ++i) {
       current = path[i];
-      if (s !== 1) current = scale(current, s);
 
-      switch (current[0]) { // first letter
+      if (sX !== 1 || sY !== 1) {
+        current = scale$1(current, sX, sY);
+      }
 
-        case 'l': // lineto, relative
+      switch (current[0]) {
+        // first letter
+        case 'l':
+          // lineto, relative
           x += current[1];
           y += current[2];
           context.lineTo(x + l, y + t);
           break;
 
-        case 'L': // lineto, absolute
+        case 'L':
+          // lineto, absolute
           x = current[1];
           y = current[2];
           context.lineTo(x + l, y + t);
           break;
 
-        case 'h': // horizontal lineto, relative
+        case 'h':
+          // horizontal lineto, relative
           x += current[1];
           context.lineTo(x + l, y + t);
           break;
 
-        case 'H': // horizontal lineto, absolute
+        case 'H':
+          // horizontal lineto, absolute
           x = current[1];
           context.lineTo(x + l, y + t);
           break;
 
-        case 'v': // vertical lineto, relative
+        case 'v':
+          // vertical lineto, relative
           y += current[1];
           context.lineTo(x + l, y + t);
           break;
 
-        case 'V': // verical lineto, absolute
+        case 'V':
+          // verical lineto, absolute
           y = current[1];
           context.lineTo(x + l, y + t);
           break;
 
-        case 'm': // moveTo, relative
+        case 'm':
+          // moveTo, relative
           x += current[1];
           y += current[2];
           context.moveTo(x + l, y + t);
           break;
 
-        case 'M': // moveTo, absolute
+        case 'M':
+          // moveTo, absolute
           x = current[1];
           y = current[2];
           context.moveTo(x + l, y + t);
           break;
 
-        case 'c': // bezierCurveTo, relative
+        case 'c':
+          // bezierCurveTo, relative
           tempX = x + current[5];
           tempY = y + current[6];
           controlX = x + current[3];
           controlY = y + current[4];
-          context.bezierCurveTo(
-            x + current[1] + l, // x1
-            y + current[2] + t, // y1
-            controlX + l, // x2
-            controlY + t, // y2
-            tempX + l,
-            tempY + t
-          );
+          context.bezierCurveTo(x + current[1] + l, // x1
+          y + current[2] + t, // y1
+          controlX + l, // x2
+          controlY + t, // y2
+          tempX + l, tempY + t);
           x = tempX;
           y = tempY;
           break;
 
-        case 'C': // bezierCurveTo, absolute
+        case 'C':
+          // bezierCurveTo, absolute
           x = current[5];
           y = current[6];
           controlX = current[3];
           controlY = current[4];
-          context.bezierCurveTo(
-            current[1] + l,
-            current[2] + t,
-            controlX + l,
-            controlY + t,
-            x + l,
-            y + t
-          );
+          context.bezierCurveTo(current[1] + l, current[2] + t, controlX + l, controlY + t, x + l, y + t);
           break;
 
-        case 's': // shorthand cubic bezierCurveTo, relative
+        case 's':
+          // shorthand cubic bezierCurveTo, relative
           // transform to absolute x,y
           tempX = x + current[3];
-          tempY = y + current[4];
-          // calculate reflection of previous control points
+          tempY = y + current[4]; // calculate reflection of previous control points
+
           controlX = 2 * x - controlX;
           controlY = 2 * y - controlY;
-          context.bezierCurveTo(
-            controlX + l,
-            controlY + t,
-            x + current[1] + l,
-            y + current[2] + t,
-            tempX + l,
-            tempY + t
-          );
-
-          // set control point to 2nd one of this command
+          context.bezierCurveTo(controlX + l, controlY + t, x + current[1] + l, y + current[2] + t, tempX + l, tempY + t); // set control point to 2nd one of this command
           // the first control point is assumed to be the reflection of
           // the second control point on the previous command relative
           // to the current point.
+
           controlX = x + current[1];
           controlY = y + current[2];
-
           x = tempX;
           y = tempY;
           break;
 
-        case 'S': // shorthand cubic bezierCurveTo, absolute
+        case 'S':
+          // shorthand cubic bezierCurveTo, absolute
           tempX = current[3];
-          tempY = current[4];
-          // calculate reflection of previous control points
-          controlX = 2*x - controlX;
-          controlY = 2*y - controlY;
-          context.bezierCurveTo(
-            controlX + l,
-            controlY + t,
-            current[1] + l,
-            current[2] + t,
-            tempX + l,
-            tempY + t
-          );
+          tempY = current[4]; // calculate reflection of previous control points
+
+          controlX = 2 * x - controlX;
+          controlY = 2 * y - controlY;
+          context.bezierCurveTo(controlX + l, controlY + t, current[1] + l, current[2] + t, tempX + l, tempY + t);
           x = tempX;
-          y = tempY;
-          // set control point to 2nd one of this command
+          y = tempY; // set control point to 2nd one of this command
           // the first control point is assumed to be the reflection of
           // the second control point on the previous command relative
           // to the current point.
+
           controlX = current[1];
           controlY = current[2];
-
           break;
 
-        case 'q': // quadraticCurveTo, relative
+        case 'q':
+          // quadraticCurveTo, relative
           // transform to absolute x,y
           tempX = x + current[3];
           tempY = y + current[4];
-
           controlX = x + current[1];
           controlY = y + current[2];
-
-          context.quadraticCurveTo(
-            controlX + l,
-            controlY + t,
-            tempX + l,
-            tempY + t
-          );
+          context.quadraticCurveTo(controlX + l, controlY + t, tempX + l, tempY + t);
           x = tempX;
           y = tempY;
           break;
 
-        case 'Q': // quadraticCurveTo, absolute
+        case 'Q':
+          // quadraticCurveTo, absolute
           tempX = current[3];
           tempY = current[4];
-
-          context.quadraticCurveTo(
-            current[1] + l,
-            current[2] + t,
-            tempX + l,
-            tempY + t
-          );
+          context.quadraticCurveTo(current[1] + l, current[2] + t, tempX + l, tempY + t);
           x = tempX;
           y = tempY;
           controlX = current[1];
           controlY = current[2];
           break;
 
-        case 't': // shorthand quadraticCurveTo, relative
-
+        case 't':
+          // shorthand quadraticCurveTo, relative
           // transform to absolute x,y
           tempX = x + current[1];
           tempY = y + current[2];
@@ -720,13 +508,11 @@
             // assume the control point is coincident with the current point
             controlX = x;
             controlY = y;
-          }
-          else if (previous[0] === 't') {
+          } else if (previous[0] === 't') {
             // calculate reflection of previous control points for t
             controlX = 2 * x - tempControlX;
             controlY = 2 * y - tempControlY;
-          }
-          else if (previous[0] === 'q') {
+          } else if (previous[0] === 'q') {
             // calculate reflection of previous control points for q
             controlX = 2 * x - controlX;
             controlY = 2 * y - controlY;
@@ -734,13 +520,7 @@
 
           tempControlX = controlX;
           tempControlY = controlY;
-
-          context.quadraticCurveTo(
-            controlX + l,
-            controlY + t,
-            tempX + l,
-            tempY + t
-          );
+          context.quadraticCurveTo(controlX + l, controlY + t, tempX + l, tempY + t);
           x = tempX;
           y = tempY;
           controlX = x + current[1];
@@ -749,45 +529,23 @@
 
         case 'T':
           tempX = current[1];
-          tempY = current[2];
+          tempY = current[2]; // calculate reflection of previous control points
 
-          // calculate reflection of previous control points
           controlX = 2 * x - controlX;
           controlY = 2 * y - controlY;
-          context.quadraticCurveTo(
-            controlX + l,
-            controlY + t,
-            tempX + l,
-            tempY + t
-          );
+          context.quadraticCurveTo(controlX + l, controlY + t, tempX + l, tempY + t);
           x = tempX;
           y = tempY;
           break;
 
         case 'a':
-          drawArc(context, x + l, y + t, [
-            current[1],
-            current[2],
-            current[3],
-            current[4],
-            current[5],
-            current[6] + x + l,
-            current[7] + y + t
-          ]);
+          drawArc(context, x + l, y + t, [current[1], current[2], current[3], current[4], current[5], current[6] + x + l, current[7] + y + t]);
           x += current[6];
           y += current[7];
           break;
 
         case 'A':
-          drawArc(context, x + l, y + t, [
-            current[1],
-            current[2],
-            current[3],
-            current[4],
-            current[5],
-            current[6] + l,
-            current[7] + t
-          ]);
+          drawArc(context, x + l, y + t, [current[1], current[2], current[3], current[4], current[5], current[6] + l, current[7] + t]);
           x = current[6];
           y = current[7];
           break;
@@ -797,40 +555,38 @@
           context.closePath();
           break;
       }
+
       previous = current;
     }
   }
 
   function drawArc(context, x, y, coords) {
-    var seg = segments(
-      coords[5], // end x
-      coords[6], // end y
-      coords[0], // radius x
-      coords[1], // radius y
-      coords[3], // large flag
-      coords[4], // sweep flag
-      coords[2], // rotation
-      x, y
-    );
-    for (var i=0; i<seg.length; ++i) {
-      var bez = bezier(seg[i]);
+    const seg = segments(coords[5], // end x
+    coords[6], // end y
+    coords[0], // radius x
+    coords[1], // radius y
+    coords[3], // large flag
+    coords[4], // sweep flag
+    coords[2], // rotation
+    x, y);
+
+    for (let i = 0; i < seg.length; ++i) {
+      const bez = bezier(seg[i]);
       context.bezierCurveTo(bez[0], bez[1], bez[2], bez[3], bez[4], bez[5]);
     }
   }
 
-  var tau = 2 * Math.PI,
-      halfSqrt3 = Math.sqrt(3) / 2;
-
-  var builtins = {
+  const Tan30 = 0.5773502691896257;
+  const builtins = {
     'circle': {
-      draw: function(context, size) {
-        var r = Math.sqrt(size) / 2;
+      draw: function (context, size) {
+        const r = Math.sqrt(size) / 2;
         context.moveTo(r, 0);
-        context.arc(0, 0, r, 0, tau);
+        context.arc(0, 0, r, 0, Tau);
       }
     },
     'cross': {
-      draw: function(context, size) {
+      draw: function (context, size) {
         var r = Math.sqrt(size) / 2,
             s = r / 2.5;
         context.moveTo(-r, -s);
@@ -849,8 +605,8 @@
       }
     },
     'diamond': {
-      draw: function(context, size) {
-        var r = Math.sqrt(size) / 2;
+      draw: function (context, size) {
+        const r = Math.sqrt(size) / 2;
         context.moveTo(-r, 0);
         context.lineTo(0, -r);
         context.lineTo(r, 0);
@@ -859,16 +615,55 @@
       }
     },
     'square': {
-      draw: function(context, size) {
+      draw: function (context, size) {
         var w = Math.sqrt(size),
             x = -w / 2;
         context.rect(x, x, w, w);
       }
     },
-    'triangle-up': {
-      draw: function(context, size) {
+    'arrow': {
+      draw: function (context, size) {
         var r = Math.sqrt(size) / 2,
-            h = halfSqrt3 * r;
+            s = r / 7,
+            t = r / 2.5,
+            v = r / 8;
+        context.moveTo(-s, r);
+        context.lineTo(s, r);
+        context.lineTo(s, -v);
+        context.lineTo(t, -v);
+        context.lineTo(0, -r);
+        context.lineTo(-t, -v);
+        context.lineTo(-s, -v);
+        context.closePath();
+      }
+    },
+    'wedge': {
+      draw: function (context, size) {
+        var r = Math.sqrt(size) / 2,
+            h = HalfSqrt3 * r,
+            o = h - r * Tan30,
+            b = r / 4;
+        context.moveTo(0, -h - o);
+        context.lineTo(-b, h - o);
+        context.lineTo(b, h - o);
+        context.closePath();
+      }
+    },
+    'triangle': {
+      draw: function (context, size) {
+        var r = Math.sqrt(size) / 2,
+            h = HalfSqrt3 * r,
+            o = h - r * Tan30;
+        context.moveTo(0, -h - o);
+        context.lineTo(-r, h - o);
+        context.lineTo(r, h - o);
+        context.closePath();
+      }
+    },
+    'triangle-up': {
+      draw: function (context, size) {
+        var r = Math.sqrt(size) / 2,
+            h = HalfSqrt3 * r;
         context.moveTo(0, -h);
         context.lineTo(-r, h);
         context.lineTo(r, h);
@@ -876,9 +671,9 @@
       }
     },
     'triangle-down': {
-      draw: function(context, size) {
+      draw: function (context, size) {
         var r = Math.sqrt(size) / 2,
-            h = halfSqrt3 * r;
+            h = HalfSqrt3 * r;
         context.moveTo(0, h);
         context.lineTo(-r, -h);
         context.lineTo(r, -h);
@@ -886,9 +681,9 @@
       }
     },
     'triangle-right': {
-      draw: function(context, size) {
+      draw: function (context, size) {
         var r = Math.sqrt(size) / 2,
-            h = halfSqrt3 * r;
+            h = HalfSqrt3 * r;
         context.moveTo(h, 0);
         context.lineTo(-h, -r);
         context.lineTo(-h, r);
@@ -896,34 +691,42 @@
       }
     },
     'triangle-left': {
-      draw: function(context, size) {
+      draw: function (context, size) {
         var r = Math.sqrt(size) / 2,
-            h = halfSqrt3 * r;
+            h = HalfSqrt3 * r;
         context.moveTo(-h, 0);
         context.lineTo(h, -r);
         context.lineTo(h, r);
         context.closePath();
       }
+    },
+    'stroke': {
+      draw: function (context, size) {
+        const r = Math.sqrt(size) / 2;
+        context.moveTo(-r, 0);
+        context.lineTo(r, 0);
+      }
     }
   };
-
   function symbols(_) {
-    return builtins.hasOwnProperty(_) ? builtins[_] : customSymbol(_);
+    return vegaUtil.hasOwnProperty(builtins, _) ? builtins[_] : customSymbol(_);
   }
-
   var custom = {};
 
   function customSymbol(path) {
-    if (!custom.hasOwnProperty(path)) {
-      var parsed = pathParse(path);
+    if (!vegaUtil.hasOwnProperty(custom, path)) {
+      const parsed = pathParse(path);
       custom[path] = {
-        draw: function(context, size) {
+        draw: function (context, size) {
           pathRender(context, parsed, 0, 0, Math.sqrt(size) / 2);
         }
       };
     }
+
     return custom[path];
   }
+
+  const C = 0.448084975506; // C = 1 - c
 
   function rectangleX(d) {
     return d.x;
@@ -941,42 +744,52 @@
     return d.height;
   }
 
-  function constant(_) {
-    return function() { return _; };
+  function number(_) {
+    return typeof _ === 'function' ? _ : () => +_;
   }
 
-  function vg_rect() {
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(value, max));
+  }
+
+  function vg_rect () {
     var x = rectangleX,
         y = rectangleY,
         width = rectangleWidth,
         height = rectangleHeight,
-        cornerRadius = constant(0),
+        crTL = number(0),
+        crTR = crTL,
+        crBL = crTL,
+        crBR = crTL,
         context = null;
 
     function rectangle(_, x0, y0) {
       var buffer,
           x1 = x0 != null ? x0 : +x.call(this, _),
           y1 = y0 != null ? y0 : +y.call(this, _),
-          w  = +width.call(this, _),
-          h  = +height.call(this, _),
-          cr = +cornerRadius.call(this, _);
-
+          w = +width.call(this, _),
+          h = +height.call(this, _),
+          s = Math.min(w, h) / 2,
+          tl = clamp(+crTL.call(this, _), 0, s),
+          tr = clamp(+crTR.call(this, _), 0, s),
+          bl = clamp(+crBL.call(this, _), 0, s),
+          br = clamp(+crBR.call(this, _), 0, s);
       if (!context) context = buffer = d3Path.path();
 
-      if (cr <= 0) {
+      if (tl <= 0 && tr <= 0 && bl <= 0 && br <= 0) {
         context.rect(x1, y1, w, h);
       } else {
         var x2 = x1 + w,
             y2 = y1 + h;
-        context.moveTo(x1 + cr, y1);
-        context.lineTo(x2 - cr, y1);
-        context.quadraticCurveTo(x2, y1, x2, y1 + cr);
-        context.lineTo(x2, y2 - cr);
-        context.quadraticCurveTo(x2, y2, x2 - cr, y2);
-        context.lineTo(x1 + cr, y2);
-        context.quadraticCurveTo(x1, y2, x1, y2 - cr);
-        context.lineTo(x1, y1 + cr);
-        context.quadraticCurveTo(x1, y1, x1 + cr, y1);
+        context.moveTo(x1 + tl, y1);
+        context.lineTo(x2 - tr, y1);
+        context.bezierCurveTo(x2 - C * tr, y1, x2, y1 + C * tr, x2, y1 + tr);
+        context.lineTo(x2, y2 - br);
+        context.bezierCurveTo(x2, y2 - C * br, x2 - C * br, y2, x2 - br, y2);
+        context.lineTo(x1 + bl, y2);
+        context.bezierCurveTo(x1 + C * bl, y2, x1, y2 - C * bl, x1, y2 - bl);
+        context.lineTo(x1, y1 + tl);
+        context.bezierCurveTo(x1, y1 + C * tl, x1 + C * tl, y1, x1 + tl, y1);
         context.closePath();
       }
 
@@ -986,52 +799,55 @@
       }
     }
 
-    rectangle.x = function(_) {
+    rectangle.x = function (_) {
       if (arguments.length) {
-        x = typeof _ === 'function' ? _ : constant(+_);
+        x = number(_);
         return rectangle;
       } else {
         return x;
       }
     };
 
-    rectangle.y = function(_) {
+    rectangle.y = function (_) {
       if (arguments.length) {
-        y = typeof _ === 'function' ? _ : constant(+_);
+        y = number(_);
         return rectangle;
       } else {
         return y;
       }
     };
 
-    rectangle.width = function(_) {
+    rectangle.width = function (_) {
       if (arguments.length) {
-        width = typeof _ === 'function' ? _ : constant(+_);
+        width = number(_);
         return rectangle;
       } else {
         return width;
       }
     };
 
-    rectangle.height = function(_) {
+    rectangle.height = function (_) {
       if (arguments.length) {
-        height = typeof _ === 'function' ? _ : constant(+_);
+        height = number(_);
         return rectangle;
       } else {
         return height;
       }
     };
 
-    rectangle.cornerRadius = function(_) {
+    rectangle.cornerRadius = function (tl, tr, br, bl) {
       if (arguments.length) {
-        cornerRadius = typeof _ === 'function' ? _ : constant(+_);
+        crTL = number(tl);
+        crTR = tr != null ? number(tr) : crTL;
+        crBR = br != null ? number(br) : crTL;
+        crBL = bl != null ? number(bl) : crTR;
         return rectangle;
       } else {
-        return cornerRadius;
+        return crTL;
       }
     };
 
-    rectangle.context = function(_) {
+    rectangle.context = function (_) {
       if (arguments.length) {
         context = _ == null ? null : _;
         return rectangle;
@@ -1043,18 +859,19 @@
     return rectangle;
   }
 
-  var pi = Math.PI;
-
-  function vg_trail() {
+  function vg_trail () {
     var x,
         y,
         size,
         defined,
         context = null,
-        ready, x1, y1, r1;
+        ready,
+        x1,
+        y1,
+        r1;
 
     function point(x2, y2, w2) {
-      var r2 = w2 / 2;
+      const r2 = w2 / 2;
 
       if (ready) {
         var ux = y1 - y2,
@@ -1065,21 +882,22 @@
           var ud = Math.sqrt(ux * ux + uy * uy),
               rx = (ux /= ud) * r1,
               ry = (uy /= ud) * r1,
-              t = Math.atan2(uy, ux);
+              t = Math.atan2(uy, ux); // draw segment
 
-          // draw segment
           context.moveTo(x1 - rx, y1 - ry);
           context.lineTo(x2 - ux * r2, y2 - uy * r2);
-          context.arc(x2, y2, r2, t - pi, t);
+          context.arc(x2, y2, r2, t - Math.PI, t);
           context.lineTo(x1 + rx, y1 + ry);
-          context.arc(x1, y1, r1, t, t + pi);
+          context.arc(x1, y1, r1, t, t + Math.PI);
         } else {
-          context.arc(x2, y2, r2, 0, 2*pi);
+          context.arc(x2, y2, r2, 0, Tau);
         }
+
         context.closePath();
       } else {
         ready = 1;
       }
+
       x1 = x2;
       y1 = y2;
       r1 = r2;
@@ -1091,13 +909,13 @@
           d,
           defined0 = false,
           buffer;
-
       if (context == null) context = buffer = d3Path.path();
 
       for (i = 0; i <= n; ++i) {
         if (!(i < n && defined(d = data[i], i, data)) === defined0) {
           if (defined0 = !defined0) ready = 0;
         }
+
         if (defined0) point(+x(d, i, data), +y(d, i, data), +size(d, i, data));
       }
 
@@ -1107,7 +925,7 @@
       }
     }
 
-    trail.x = function(_) {
+    trail.x = function (_) {
       if (arguments.length) {
         x = _;
         return trail;
@@ -1116,7 +934,7 @@
       }
     };
 
-    trail.y = function(_) {
+    trail.y = function (_) {
       if (arguments.length) {
         y = _;
         return trail;
@@ -1125,7 +943,7 @@
       }
     };
 
-    trail.size = function(_) {
+    trail.size = function (_) {
       if (arguments.length) {
         size = _;
         return trail;
@@ -1134,7 +952,7 @@
       }
     };
 
-    trail.defined = function(_) {
+    trail.defined = function (_) {
       if (arguments.length) {
         defined = _;
         return trail;
@@ -1143,13 +961,14 @@
       }
     };
 
-    trail.context = function(_) {
+    trail.context = function (_) {
       if (arguments.length) {
         if (_ == null) {
           context = null;
         } else {
           context = _;
         }
+
         return trail;
       } else {
         return context;
@@ -1159,187 +978,662 @@
     return trail;
   }
 
-  function x(item)    { return item.x || 0; }
-  function y(item)    { return item.y || 0; }
-  function w(item)    { return item.width || 0; }
-  function ts(item)   { return item.size || 1; }
-  function h(item)    { return item.height || 0; }
-  function xw(item)   { return (item.x || 0) + (item.width || 0); }
-  function yh(item)   { return (item.y || 0) + (item.height || 0); }
-  function sa(item)   { return item.startAngle || 0; }
-  function ea(item)   { return item.endAngle || 0; }
-  function pa(item)   { return item.padAngle || 0; }
-  function ir(item)   { return item.innerRadius || 0; }
-  function or(item)   { return item.outerRadius || 0; }
-  function cr(item)   { return item.cornerRadius || 0; }
-  function def(item)  { return !(item.defined === false); }
-  function size(item) { return item.size == null ? 64 : item.size; }
-  function type(item) { return symbols(item.shape || 'circle'); }
+  function value$1(a, b) {
+    return a != null ? a : b;
+  }
 
-  var arcShape    = d3Shape.arc().startAngle(sa).endAngle(ea).padAngle(pa)
-                            .innerRadius(ir).outerRadius(or).cornerRadius(cr),
-      areavShape  = d3Shape.area().x(x).y1(y).y0(yh).defined(def),
-      areahShape  = d3Shape.area().y(y).x1(x).x0(xw).defined(def),
-      lineShape   = d3Shape.line().x(x).y(y).defined(def),
-      rectShape   = vg_rect().x(x).y(y).width(w).height(h).cornerRadius(cr),
-      symbolShape = d3Shape.symbol().type(type).size(size),
-      trailShape  = vg_trail().x(x).y(y).defined(def).size(ts);
+  const x = item => item.x || 0,
+        y = item => item.y || 0,
+        w = item => item.width || 0,
+        h = item => item.height || 0,
+        xw = item => (item.x || 0) + (item.width || 0),
+        yh = item => (item.y || 0) + (item.height || 0),
+        sa = item => item.startAngle || 0,
+        ea = item => item.endAngle || 0,
+        pa = item => item.padAngle || 0,
+        ir = item => item.innerRadius || 0,
+        or = item => item.outerRadius || 0,
+        cr = item => item.cornerRadius || 0,
+        tl = item => value$1(item.cornerRadiusTopLeft, item.cornerRadius) || 0,
+        tr = item => value$1(item.cornerRadiusTopRight, item.cornerRadius) || 0,
+        br = item => value$1(item.cornerRadiusBottomRight, item.cornerRadius) || 0,
+        bl = item => value$1(item.cornerRadiusBottomLeft, item.cornerRadius) || 0,
+        sz = item => value$1(item.size, 64),
+        ts = item => item.size || 1,
+        def = item => !(item.defined === false),
+        type = item => symbols(item.shape || 'circle');
 
-  function arc(context, item) {
+  const arcShape = d3Shape.arc().startAngle(sa).endAngle(ea).padAngle(pa).innerRadius(ir).outerRadius(or).cornerRadius(cr),
+        areavShape = d3Shape.area().x(x).y1(y).y0(yh).defined(def),
+        areahShape = d3Shape.area().y(y).x1(x).x0(xw).defined(def),
+        lineShape = d3Shape.line().x(x).y(y).defined(def),
+        rectShape = vg_rect().x(x).y(y).width(w).height(h).cornerRadius(tl, tr, br, bl),
+        symbolShape = d3Shape.symbol().type(type).size(sz),
+        trailShape = vg_trail().x(x).y(y).defined(def).size(ts);
+  function hasCornerRadius(item) {
+    return item.cornerRadius || item.cornerRadiusTopLeft || item.cornerRadiusTopRight || item.cornerRadiusBottomRight || item.cornerRadiusBottomLeft;
+  }
+  function arc$1(context, item) {
     return arcShape.context(context)(item);
   }
-
-  function area(context, items) {
-    var item = items[0],
-        interp = item.interpolate || 'linear';
-    return (item.orient === 'horizontal' ? areahShape : areavShape)
-      .curve(curves(interp, item.orient, item.tension))
-      .context(context)(items);
+  function area$1(context, items) {
+    const item = items[0],
+          interp = item.interpolate || 'linear';
+    return (item.orient === 'horizontal' ? areahShape : areavShape).curve(curves(interp, item.orient, item.tension)).context(context)(items);
   }
-
-  function line(context, items) {
-    var item = items[0],
-        interp = item.interpolate || 'linear';
-    return lineShape.curve(curves(interp, item.orient, item.tension))
-      .context(context)(items);
+  function line$1(context, items) {
+    const item = items[0],
+          interp = item.interpolate || 'linear';
+    return lineShape.curve(curves(interp, item.orient, item.tension)).context(context)(items);
   }
-
   function rectangle(context, item, x, y) {
     return rectShape.context(context)(item, x, y);
   }
-
-  function shape(context, item) {
-    return (item.mark.shape || item.shape)
-      .context(context)(item);
+  function shape$1(context, item) {
+    return (item.mark.shape || item.shape).context(context)(item);
   }
-
-  function symbol(context, item) {
+  function symbol$1(context, item) {
     return symbolShape.context(context)(item);
   }
-
-  function trail(context, items) {
+  function trail$1(context, items) {
     return trailShape.context(context)(items);
   }
 
-  function boundStroke(bounds, item) {
-    if (item.stroke && item.opacity !== 0 && item.strokeOpacity !== 0) {
-      bounds.expand(item.strokeWidth != null ? +item.strokeWidth : 1);
+  var clip_id = 1;
+  function resetSVGClipId() {
+    clip_id = 1;
+  }
+  function clip$1 (renderer, item, size) {
+    var clip = item.clip,
+        defs = renderer._defs,
+        id = item.clip_id || (item.clip_id = 'clip' + clip_id++),
+        c = defs.clipping[id] || (defs.clipping[id] = {
+      id: id
+    });
+
+    if (vegaUtil.isFunction(clip)) {
+      c.path = clip(null);
+    } else if (hasCornerRadius(size)) {
+      c.path = rectangle(null, size, 0, 0);
+    } else {
+      c.width = size.width || 0;
+      c.height = size.height || 0;
     }
+
+    return 'url(#' + id + ')';
+  }
+
+  function Bounds(b) {
+    this.clear();
+    if (b) this.union(b);
+  }
+  Bounds.prototype = {
+    clone() {
+      return new Bounds(this);
+    },
+
+    clear() {
+      this.x1 = +Number.MAX_VALUE;
+      this.y1 = +Number.MAX_VALUE;
+      this.x2 = -Number.MAX_VALUE;
+      this.y2 = -Number.MAX_VALUE;
+      return this;
+    },
+
+    empty() {
+      return this.x1 === +Number.MAX_VALUE && this.y1 === +Number.MAX_VALUE && this.x2 === -Number.MAX_VALUE && this.y2 === -Number.MAX_VALUE;
+    },
+
+    equals(b) {
+      return this.x1 === b.x1 && this.y1 === b.y1 && this.x2 === b.x2 && this.y2 === b.y2;
+    },
+
+    set(x1, y1, x2, y2) {
+      if (x2 < x1) {
+        this.x2 = x1;
+        this.x1 = x2;
+      } else {
+        this.x1 = x1;
+        this.x2 = x2;
+      }
+
+      if (y2 < y1) {
+        this.y2 = y1;
+        this.y1 = y2;
+      } else {
+        this.y1 = y1;
+        this.y2 = y2;
+      }
+
+      return this;
+    },
+
+    add(x, y) {
+      if (x < this.x1) this.x1 = x;
+      if (y < this.y1) this.y1 = y;
+      if (x > this.x2) this.x2 = x;
+      if (y > this.y2) this.y2 = y;
+      return this;
+    },
+
+    expand(d) {
+      this.x1 -= d;
+      this.y1 -= d;
+      this.x2 += d;
+      this.y2 += d;
+      return this;
+    },
+
+    round() {
+      this.x1 = Math.floor(this.x1);
+      this.y1 = Math.floor(this.y1);
+      this.x2 = Math.ceil(this.x2);
+      this.y2 = Math.ceil(this.y2);
+      return this;
+    },
+
+    scale(s) {
+      this.x1 *= s;
+      this.y1 *= s;
+      this.x2 *= s;
+      this.y2 *= s;
+      return this;
+    },
+
+    translate(dx, dy) {
+      this.x1 += dx;
+      this.x2 += dx;
+      this.y1 += dy;
+      this.y2 += dy;
+      return this;
+    },
+
+    rotate(angle, x, y) {
+      const p = this.rotatedPoints(angle, x, y);
+      return this.clear().add(p[0], p[1]).add(p[2], p[3]).add(p[4], p[5]).add(p[6], p[7]);
+    },
+
+    rotatedPoints(angle, x, y) {
+      var {
+        x1,
+        y1,
+        x2,
+        y2
+      } = this,
+          cos = Math.cos(angle),
+          sin = Math.sin(angle),
+          cx = x - x * cos + y * sin,
+          cy = y - x * sin - y * cos;
+      return [cos * x1 - sin * y1 + cx, sin * x1 + cos * y1 + cy, cos * x1 - sin * y2 + cx, sin * x1 + cos * y2 + cy, cos * x2 - sin * y1 + cx, sin * x2 + cos * y1 + cy, cos * x2 - sin * y2 + cx, sin * x2 + cos * y2 + cy];
+    },
+
+    union(b) {
+      if (b.x1 < this.x1) this.x1 = b.x1;
+      if (b.y1 < this.y1) this.y1 = b.y1;
+      if (b.x2 > this.x2) this.x2 = b.x2;
+      if (b.y2 > this.y2) this.y2 = b.y2;
+      return this;
+    },
+
+    intersect(b) {
+      if (b.x1 > this.x1) this.x1 = b.x1;
+      if (b.y1 > this.y1) this.y1 = b.y1;
+      if (b.x2 < this.x2) this.x2 = b.x2;
+      if (b.y2 < this.y2) this.y2 = b.y2;
+      return this;
+    },
+
+    encloses(b) {
+      return b && this.x1 <= b.x1 && this.x2 >= b.x2 && this.y1 <= b.y1 && this.y2 >= b.y2;
+    },
+
+    alignsWith(b) {
+      return b && (this.x1 == b.x1 || this.x2 == b.x2 || this.y1 == b.y1 || this.y2 == b.y2);
+    },
+
+    intersects(b) {
+      return b && !(this.x2 < b.x1 || this.x1 > b.x2 || this.y2 < b.y1 || this.y1 > b.y2);
+    },
+
+    contains(x, y) {
+      return !(x < this.x1 || x > this.x2 || y < this.y1 || y > this.y2);
+    },
+
+    width() {
+      return this.x2 - this.x1;
+    },
+
+    height() {
+      return this.y2 - this.y1;
+    }
+
+  };
+
+  function Item(mark) {
+    this.mark = mark;
+    this.bounds = this.bounds || new Bounds();
+  }
+
+  function GroupItem(mark) {
+    Item.call(this, mark);
+    this.items = this.items || [];
+  }
+  vegaUtil.inherits(GroupItem, Item);
+
+  function ResourceLoader(customLoader) {
+    this._pending = 0;
+    this._loader = customLoader || vegaLoader.loader();
+  }
+
+  function increment(loader) {
+    loader._pending += 1;
+  }
+
+  function decrement(loader) {
+    loader._pending -= 1;
+  }
+
+  ResourceLoader.prototype = {
+    pending() {
+      return this._pending;
+    },
+
+    sanitizeURL(uri) {
+      const loader = this;
+      increment(loader);
+      return loader._loader.sanitize(uri, {
+        context: 'href'
+      }).then(opt => {
+        decrement(loader);
+        return opt;
+      }).catch(() => {
+        decrement(loader);
+        return null;
+      });
+    },
+
+    loadImage(uri) {
+      const loader = this,
+            Image = vegaCanvas.image();
+      increment(loader);
+      return loader._loader.sanitize(uri, {
+        context: 'image'
+      }).then(opt => {
+        const url = opt.href;
+        if (!url || !Image) throw {
+          url: url
+        };
+        const img = new Image(); // set crossOrigin only if cors is defined; empty string sets anonymous mode
+        // https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/crossOrigin
+
+        const cors = vegaUtil.hasOwnProperty(opt, 'crossOrigin') ? opt.crossOrigin : 'anonymous';
+        if (cors != null) img.crossOrigin = cors; // attempt to load image resource
+
+        img.onload = () => decrement(loader);
+
+        img.onerror = () => decrement(loader);
+
+        img.src = url;
+        return img;
+      }).catch(e => {
+        decrement(loader);
+        return {
+          complete: false,
+          width: 0,
+          height: 0,
+          src: e && e.url || ''
+        };
+      });
+    },
+
+    ready() {
+      const loader = this;
+      return new Promise(accept => {
+        function poll(value) {
+          if (!loader.pending()) accept(value);else setTimeout(() => {
+            poll(true);
+          }, 10);
+        }
+
+        poll(false);
+      });
+    }
+
+  };
+
+  function boundStroke (bounds, item, miter) {
+    if (item.stroke && item.opacity !== 0 && item.strokeOpacity !== 0) {
+      const sw = item.strokeWidth != null ? +item.strokeWidth : 1;
+      bounds.expand(sw + (miter ? miterAdjustment(item, sw) : 0));
+    }
+
     return bounds;
   }
 
-  var bounds,
-      tau$1 = Math.PI * 2,
-      halfPi = tau$1 / 4,
-      circleThreshold = tau$1 - 1e-8;
+  function miterAdjustment(item, strokeWidth) {
+    // TODO: more sophisticated adjustment? Or miter support in boundContext?
+    return item.strokeJoin && item.strokeJoin !== 'miter' ? 0 : strokeWidth;
+  }
 
-  function context(_) {
+  const circleThreshold = Tau - 1e-8;
+  let bounds, lx, ly, rot, ma, mb, mc, md;
+
+  const add = (x, y) => bounds.add(x, y);
+
+  const addL = (x, y) => add(lx = x, ly = y);
+
+  const addX = x => add(x, bounds.y1);
+
+  const addY = y => add(bounds.x1, y);
+
+  const px = (x, y) => ma * x + mc * y;
+
+  const py = (x, y) => mb * x + md * y;
+
+  const addp = (x, y) => add(px(x, y), py(x, y));
+
+  const addpL = (x, y) => addL(px(x, y), py(x, y));
+
+  function boundContext (_, deg) {
     bounds = _;
-    return context;
+
+    if (deg) {
+      rot = deg * DegToRad;
+      ma = md = Math.cos(rot);
+      mb = Math.sin(rot);
+      mc = -mb;
+    } else {
+      ma = md = 1;
+      rot = mb = mc = 0;
+    }
+
+    return context$1;
   }
+  const context$1 = {
+    beginPath() {},
 
-  function noop() {}
+    closePath() {},
 
-  function add(x, y) { bounds.add(x, y); }
+    moveTo: addpL,
+    lineTo: addpL,
 
-  context.beginPath = noop;
-
-  context.closePath = noop;
-
-  context.moveTo = add;
-
-  context.lineTo = add;
-
-  context.rect = function(x, y, w, h) {
-    add(x, y);
-    add(x + w, y + h);
-  };
-
-  context.quadraticCurveTo = function(x1, y1, x2, y2) {
-    add(x1, y1);
-    add(x2, y2);
-  };
-
-  context.bezierCurveTo = function(x1, y1, x2, y2, x3, y3) {
-    add(x1, y1);
-    add(x2, y2);
-    add(x3, y3);
-  };
-
-  context.arc = function(cx, cy, r, sa, ea, ccw) {
-    if (Math.abs(ea - sa) > circleThreshold) {
-      add(cx - r, cy - r);
-      add(cx + r, cy + r);
-      return;
-    }
-
-    var xmin = Infinity, xmax = -Infinity,
-        ymin = Infinity, ymax = -Infinity,
-        s, i, x, y;
-
-    function update(a) {
-      x = r * Math.cos(a);
-      y = r * Math.sin(a);
-      if (x < xmin) xmin = x;
-      if (x > xmax) xmax = x;
-      if (y < ymin) ymin = y;
-      if (y > ymax) ymax = y;
-    }
-
-    // Sample end points and interior points aligned with 90 degrees
-    update(sa);
-    update(ea);
-
-    if (ea !== sa) {
-      sa = sa % tau$1; if (sa < 0) sa += tau$1;
-      ea = ea % tau$1; if (ea < 0) ea += tau$1;
-
-      if (ea < sa) {
-        ccw = !ccw; // flip direction
-        s = sa; sa = ea; ea = s; // swap end-points
-      }
-
-      if (ccw) {
-        ea -= tau$1;
-        s = sa - (sa % halfPi);
-        for (i=0; i<4 && s>ea; ++i, s-=halfPi) update(s);
+    rect(x, y, w, h) {
+      if (rot) {
+        addp(x + w, y);
+        addp(x + w, y + h);
+        addp(x, y + h);
+        addpL(x, y);
       } else {
-        s = sa - (sa % halfPi) + halfPi;
-        for (i=0; i<4 && s<ea; ++i, s=s+halfPi) update(s);
+        add(x + w, y + h);
+        addL(x, y);
+      }
+    },
+
+    quadraticCurveTo(x1, y1, x2, y2) {
+      const px1 = px(x1, y1),
+            py1 = py(x1, y1),
+            px2 = px(x2, y2),
+            py2 = py(x2, y2);
+      quadExtrema(lx, px1, px2, addX);
+      quadExtrema(ly, py1, py2, addY);
+      addL(px2, py2);
+    },
+
+    bezierCurveTo(x1, y1, x2, y2, x3, y3) {
+      const px1 = px(x1, y1),
+            py1 = py(x1, y1),
+            px2 = px(x2, y2),
+            py2 = py(x2, y2),
+            px3 = px(x3, y3),
+            py3 = py(x3, y3);
+      cubicExtrema(lx, px1, px2, px3, addX);
+      cubicExtrema(ly, py1, py2, py3, addY);
+      addL(px3, py3);
+    },
+
+    arc(cx, cy, r, sa, ea, ccw) {
+      sa += rot;
+      ea += rot; // store last point on path
+
+      lx = r * Math.cos(ea) + cx;
+      ly = r * Math.sin(ea) + cy;
+
+      if (Math.abs(ea - sa) > circleThreshold) {
+        // treat as full circle
+        add(cx - r, cy - r);
+        add(cx + r, cy + r);
+      } else {
+        const update = a => add(r * Math.cos(a) + cx, r * Math.sin(a) + cy);
+
+        let s, i; // sample end points
+
+        update(sa);
+        update(ea); // sample interior points aligned with 90 degrees
+
+        if (ea !== sa) {
+          sa = sa % Tau;
+          if (sa < 0) sa += Tau;
+          ea = ea % Tau;
+          if (ea < 0) ea += Tau;
+
+          if (ea < sa) {
+            ccw = !ccw; // flip direction
+
+            s = sa;
+            sa = ea;
+            ea = s; // swap end-points
+          }
+
+          if (ccw) {
+            ea -= Tau;
+            s = sa - sa % HalfPi;
+
+            for (i = 0; i < 4 && s > ea; ++i, s -= HalfPi) update(s);
+          } else {
+            s = sa - sa % HalfPi + HalfPi;
+
+            for (i = 0; i < 4 && s < ea; ++i, s = s + HalfPi) update(s);
+          }
+        }
       }
     }
 
-    add(cx + xmin, cy + ymin);
-    add(cx + xmax, cy + ymax);
   };
 
-  function gradient(context, gradient, bounds) {
-    var w = bounds.width(),
-        h = bounds.height(),
-        x1 = bounds.x1 + gradient.x1 * w,
-        y1 = bounds.y1 + gradient.y1 * h,
-        x2 = bounds.x1 + gradient.x2 * w,
-        y2 = bounds.y1 + gradient.y2 * h,
-        stop = gradient.stops,
-        i = 0,
-        n = stop.length,
-        linearGradient = context.createLinearGradient(x1, y1, x2, y2);
+  function quadExtrema(x0, x1, x2, cb) {
+    const t = (x0 - x1) / (x0 + x2 - 2 * x1);
+    if (0 < t && t < 1) cb(x0 + (x1 - x0) * t);
+  }
 
-    for (; i<n; ++i) {
-      linearGradient.addColorStop(stop[i].offset, stop[i].color);
+  function cubicExtrema(x0, x1, x2, x3, cb) {
+    const a = x3 - x0 + 3 * x1 - 3 * x2,
+          b = x0 + x2 - 2 * x1,
+          c = x0 - x1;
+    let t0 = 0,
+        t1 = 0,
+        r; // solve for parameter t
+
+    if (Math.abs(a) > Epsilon) {
+      // quadratic equation
+      r = b * b + c * a;
+
+      if (r >= 0) {
+        r = Math.sqrt(r);
+        t0 = (-b + r) / a;
+        t1 = (-b - r) / a;
+      }
+    } else {
+      // linear equation
+      t0 = 0.5 * c / b;
+    } // calculate position
+
+
+    if (0 < t0 && t0 < 1) cb(cubic(t0, x0, x1, x2, x3));
+    if (0 < t1 && t1 < 1) cb(cubic(t1, x0, x1, x2, x3));
+  }
+
+  function cubic(t, x0, x1, x2, x3) {
+    const s = 1 - t,
+          s2 = s * s,
+          t2 = t * t;
+    return s2 * s * x0 + 3 * s2 * t * x1 + 3 * s * t2 * x2 + t2 * t * x3;
+  }
+
+  var context = (context = vegaCanvas.canvas(1, 1)) ? context.getContext('2d') : null;
+
+  const b = new Bounds();
+  function intersectPath(draw) {
+    return function (item, brush) {
+      // rely on (inaccurate) bounds intersection if no context
+      if (!context) return true; // add path to offscreen graphics context
+
+      draw(context, item); // get bounds intersection region
+
+      b.clear().union(item.bounds).intersect(brush).round();
+      const {
+        x1,
+        y1,
+        x2,
+        y2
+      } = b; // iterate over intersection region
+      // perform fine grained inclusion test
+
+      for (let y = y1; y <= y2; ++y) {
+        for (let x = x1; x <= x2; ++x) {
+          if (context.isPointInPath(x, y)) {
+            return true;
+          }
+        }
+      } // false if no hits in intersection region
+
+
+      return false;
+    };
+  }
+  function intersectPoint(item, box) {
+    return box.contains(item.x || 0, item.y || 0);
+  }
+  function intersectRect(item, box) {
+    const x = item.x || 0,
+          y = item.y || 0,
+          w = item.width || 0,
+          h = item.height || 0;
+    return box.intersects(b.set(x, y, x + w, y + h));
+  }
+  function intersectRule(item, box) {
+    const x = item.x || 0,
+          y = item.y || 0,
+          x2 = item.x2 != null ? item.x2 : x,
+          y2 = item.y2 != null ? item.y2 : y;
+    return intersectBoxLine(box, x, y, x2, y2);
+  }
+  function intersectBoxLine(box, x, y, u, v) {
+    const {
+      x1,
+      y1,
+      x2,
+      y2
+    } = box,
+          dx = u - x,
+          dy = v - y;
+    let t0 = 0,
+        t1 = 1,
+        p,
+        q,
+        r,
+        e;
+
+    for (e = 0; e < 4; ++e) {
+      if (e === 0) {
+        p = -dx;
+        q = -(x1 - x);
+      }
+
+      if (e === 1) {
+        p = dx;
+        q = x2 - x;
+      }
+
+      if (e === 2) {
+        p = -dy;
+        q = -(y1 - y);
+      }
+
+      if (e === 3) {
+        p = dy;
+        q = y2 - y;
+      }
+
+      if (Math.abs(p) < 1e-10 && q < 0) return false;
+      r = q / p;
+
+      if (p < 0) {
+        if (r > t1) return false;else if (r > t0) t0 = r;
+      } else if (p > 0) {
+        if (r < t0) return false;else if (r < t1) t1 = r;
+      }
     }
 
-    return linearGradient;
+    return true;
   }
 
-  function color(context, item, value) {
-    return (value.id) ?
-      gradient(context, value, item.bounds) :
-      value;
+  function blend (context, item) {
+    context.globalCompositeOperation = item.blend || 'source-over';
   }
 
-  function fill(context, item, opacity) {
-    opacity *= (item.fillOpacity==null ? 1 : item.fillOpacity);
+  function value (value, dflt) {
+    return value == null ? dflt : value;
+  }
+
+  function addStops(gradient, stops) {
+    const n = stops.length;
+
+    for (let i = 0; i < n; ++i) {
+      gradient.addColorStop(stops[i].offset, stops[i].color);
+    }
+
+    return gradient;
+  }
+
+  function gradient (context, spec, bounds) {
+    const w = bounds.width(),
+          h = bounds.height();
+    let gradient;
+
+    if (spec.gradient === 'radial') {
+      gradient = context.createRadialGradient(bounds.x1 + value(spec.x1, 0.5) * w, bounds.y1 + value(spec.y1, 0.5) * h, Math.max(w, h) * value(spec.r1, 0), bounds.x1 + value(spec.x2, 0.5) * w, bounds.y1 + value(spec.y2, 0.5) * h, Math.max(w, h) * value(spec.r2, 0.5));
+    } else {
+      // linear gradient
+      const x1 = value(spec.x1, 0),
+            y1 = value(spec.y1, 0),
+            x2 = value(spec.x2, 1),
+            y2 = value(spec.y2, 0);
+
+      if (x1 === x2 || y1 === y2 || w === h) {
+        // axis aligned: use normal gradient
+        gradient = context.createLinearGradient(bounds.x1 + x1 * w, bounds.y1 + y1 * h, bounds.x1 + x2 * w, bounds.y1 + y2 * h);
+      } else {
+        // not axis aligned: render gradient into a pattern (#2365)
+        // this allows us to use normalized bounding box coordinates
+        const image = vegaCanvas.canvas(Math.ceil(w), Math.ceil(h)),
+              ictx = image.getContext('2d');
+        ictx.scale(w, h);
+        ictx.fillStyle = addStops(ictx.createLinearGradient(x1, y1, x2, y2), spec.stops);
+        ictx.fillRect(0, 0, w, h);
+        return context.createPattern(image, 'no-repeat');
+      }
+    }
+
+    return addStops(gradient, spec.stops);
+  }
+
+  function color (context, item, value) {
+    return isGradient(value) ? gradient(context, value, item.bounds) : value;
+  }
+
+  function fill (context, item, opacity) {
+    opacity *= item.fillOpacity == null ? 1 : item.fillOpacity;
+
     if (opacity > 0) {
       context.globalAlpha = opacity;
       context.fillStyle = color(context, item, item.fill);
@@ -1350,17 +1644,14 @@
   }
 
   var Empty = [];
-
-  function stroke(context, item, opacity) {
+  function stroke (context, item, opacity) {
     var lw = (lw = item.strokeWidth) != null ? lw : 1;
-
     if (lw <= 0) return false;
+    opacity *= item.strokeOpacity == null ? 1 : item.strokeOpacity;
 
-    opacity *= (item.strokeOpacity==null ? 1 : item.strokeOpacity);
     if (opacity > 0) {
       context.globalAlpha = opacity;
       context.strokeStyle = color(context, item, item.stroke);
-
       context.lineWidth = lw;
       context.lineCap = item.strokeCap || 'butt';
       context.lineJoin = item.strokeJoin || 'miter';
@@ -1370,6 +1661,7 @@
         context.setLineDash(item.strokeDash || Empty);
         context.lineDashOffset = item.strokeDashOffset || 0;
       }
+
       return true;
     } else {
       return false;
@@ -1382,11 +1674,13 @@
 
   function zorder(scene) {
     if (!scene.zdirty) return scene.zitems;
-
     var items = scene.items,
-        output = [], item, i, n;
+        output = [],
+        item,
+        i,
+        n;
 
-    for (i=0, n=items.length; i<n; ++i) {
+    for (i = 0, n = items.length; i < n; ++i) {
       item = items[i];
       item.index = i;
       if (item.zindex) output.push(item);
@@ -1395,38 +1689,39 @@
     scene.zdirty = false;
     return scene.zitems = output.sort(compare);
   }
-
   function visit(scene, visitor) {
-    var items = scene.items, i, n;
+    var items = scene.items,
+        i,
+        n;
     if (!items || !items.length) return;
-
-    var zitems = zorder(scene);
+    const zitems = zorder(scene);
 
     if (zitems && zitems.length) {
-      for (i=0, n=items.length; i<n; ++i) {
+      for (i = 0, n = items.length; i < n; ++i) {
         if (!items[i].zindex) visitor(items[i]);
       }
+
       items = zitems;
     }
 
-    for (i=0, n=items.length; i<n; ++i) {
+    for (i = 0, n = items.length; i < n; ++i) {
       visitor(items[i]);
     }
   }
-
   function pickVisit(scene, visitor) {
-    var items = scene.items, hit, i;
+    var items = scene.items,
+        hit,
+        i;
     if (!items || !items.length) return null;
-
-    var zitems = zorder(scene);
+    const zitems = zorder(scene);
     if (zitems && zitems.length) items = zitems;
 
-    for (i=items.length; --i >= 0;) {
+    for (i = items.length; --i >= 0;) {
       if (hit = visitor(items[i])) return hit;
     }
 
     if (items === zitems) {
-      for (items=scene.items, i=items.length; --i >= 0;) {
+      for (items = scene.items, i = items.length; --i >= 0;) {
         if (!items[i].zindex) {
           if (hit = visitor(items[i])) return hit;
         }
@@ -1437,17 +1732,16 @@
   }
 
   function drawAll(path) {
-    return function(context, scene, bounds) {
-      visit(scene, function(item) {
+    return function (context, scene, bounds) {
+      visit(scene, item => {
         if (!bounds || bounds.intersects(item.bounds)) {
           drawPath(path, context, item, item);
         }
       });
     };
   }
-
   function drawOne(path) {
-    return function(context, scene, bounds) {
+    return function (context, scene, bounds) {
       if (scene.items.length && (!bounds || bounds.intersects(scene.bounds))) {
         drawPath(path, context, scene.items[0], scene.items);
       }
@@ -1457,8 +1751,8 @@
   function drawPath(path, context, item, items) {
     var opacity = item.opacity == null ? 1 : item.opacity;
     if (opacity === 0) return;
-
     if (path(context, items)) return;
+    blend(context, item);
 
     if (item.fill && fill(context, item, opacity)) {
       context.fill();
@@ -1469,101 +1763,110 @@
     }
   }
 
-  var trueFunc = function() { return true; };
-
-  function pick(test) {
-    if (!test) test = trueFunc;
-
-    return function(context, scene, x, y, gx, gy) {
+  function pick$1(test) {
+    test = test || vegaUtil.truthy;
+    return function (context, scene, x, y, gx, gy) {
       x *= context.pixelRatio;
       y *= context.pixelRatio;
+      return pickVisit(scene, item => {
+        const b = item.bounds; // first hit test against bounding box
 
-      return pickVisit(scene, function(item) {
-        var b = item.bounds;
-        // first hit test against bounding box
-        if ((b && !b.contains(gx, gy)) || !b) return;
-        // if in bounding box, perform more careful test
+        if (b && !b.contains(gx, gy) || !b) return; // if in bounding box, perform more careful test
+
         if (test(context, item, x, y, gx, gy)) return item;
       });
     };
   }
-
   function hitPath(path, filled) {
-    return function(context, o, x, y) {
+    return function (context, o, x, y) {
       var item = Array.isArray(o) ? o[0] : o,
-          fill = (filled == null) ? item.fill : filled,
-          stroke = item.stroke && context.isPointInStroke, lw, lc;
+          fill = filled == null ? item.fill : filled,
+          stroke = item.stroke && context.isPointInStroke,
+          lw,
+          lc;
 
       if (stroke) {
         lw = item.strokeWidth;
         lc = item.strokeCap;
         context.lineWidth = lw != null ? lw : 1;
-        context.lineCap   = lc != null ? lc : 'butt';
+        context.lineCap = lc != null ? lc : 'butt';
       }
 
-      return path(context, o) ? false :
-        (fill && context.isPointInPath(x, y)) ||
-        (stroke && context.isPointInStroke(x, y));
+      return path(context, o) ? false : fill && context.isPointInPath(x, y) || stroke && context.isPointInStroke(x, y);
     };
   }
-
   function pickPath(path) {
-    return pick(hitPath(path));
+    return pick$1(hitPath(path));
   }
 
   function translate(x, y) {
     return 'translate(' + x + ',' + y + ')';
   }
-
+  function rotate(a) {
+    return 'rotate(' + a + ')';
+  }
+  function scale(scaleX, scaleY) {
+    return 'scale(' + scaleX + ',' + scaleY + ')';
+  }
   function translateItem(item) {
     return translate(item.x || 0, item.y || 0);
   }
+  function rotateItem(item) {
+    return translate(item.x || 0, item.y || 0) + (item.angle ? ' ' + rotate(item.angle) : '');
+  }
+  function transformItem(item) {
+    return translate(item.x || 0, item.y || 0) + (item.angle ? ' ' + rotate(item.angle) : '') + (item.scaleX || item.scaleY ? ' ' + scale(item.scaleX || 1, item.scaleY || 1) : '');
+  }
 
-  function markItemPath(type, shape) {
-
+  function markItemPath (type, shape, isect) {
     function attr(emit, item) {
-      emit('transform', translateItem(item));
+      emit('transform', rotateItem(item));
       emit('d', shape(null, item));
     }
 
     function bound(bounds, item) {
-      shape(context(bounds), item);
-      return boundStroke(bounds, item)
-        .translate(item.x || 0, item.y || 0);
+      shape(boundContext(bounds, item.angle), item);
+      return boundStroke(bounds, item).translate(item.x || 0, item.y || 0);
     }
 
-    function draw(context$$1, item) {
+    function draw(context, item) {
       var x = item.x || 0,
-          y = item.y || 0;
-      context$$1.translate(x, y);
-      context$$1.beginPath();
-      shape(context$$1, item);
-      context$$1.translate(-x, -y);
+          y = item.y || 0,
+          a = item.angle || 0;
+      context.translate(x, y);
+      if (a) context.rotate(a *= DegToRad);
+      context.beginPath();
+      shape(context, item);
+      if (a) context.rotate(-a);
+      context.translate(-x, -y);
     }
 
     return {
-      type:   type,
-      tag:    'path',
+      type: type,
+      tag: 'path',
       nested: false,
-      attr:   attr,
-      bound:  bound,
-      draw:   drawAll(draw),
-      pick:   pickPath(draw)
+      attr: attr,
+      bound: bound,
+      draw: drawAll(draw),
+      pick: pickPath(draw),
+      isect: isect || intersectPath(draw)
     };
-
   }
 
-  var arc$1 = markItemPath('arc', arc);
+  var arc = markItemPath('arc', arc$1);
 
   function pickArea(a, p) {
     var v = a[0].orient === 'horizontal' ? p[1] : p[0],
         z = a[0].orient === 'horizontal' ? 'y' : 'x',
         i = a.length,
-        min = +Infinity, hit, d;
+        min = +Infinity,
+        hit,
+        d;
 
     while (--i >= 0) {
       if (a[i].defined === false) continue;
       d = Math.abs(a[i][z] - v);
+
       if (d < min) {
         min = d;
         hit = a[i];
@@ -1572,10 +1875,12 @@
 
     return hit;
   }
-
   function pickLine(a, p) {
     var t = Math.pow(a[0].strokeWidth || 1, 2),
-        i = a.length, dx, dy, dd;
+        i = a.length,
+        dx,
+        dy,
+        dd;
 
     while (--i >= 0) {
       if (a[i].defined === false) continue;
@@ -1587,9 +1892,11 @@
 
     return null;
   }
-
   function pickTrail(a, p) {
-    var i = a.length, dx, dy, dd;
+    var i = a.length,
+        dx,
+        dy,
+        dd;
 
     while (--i >= 0) {
       if (a[i].defined === false) continue;
@@ -1597,14 +1904,13 @@
       dy = a[i].y - p[1];
       dd = dx * dx + dy * dy;
       dx = a[i].size || 1;
-      if (dd < dx*dx) return a[i];
+      if (dd < dx * dx) return a[i];
     }
 
     return null;
   }
 
-  function markMultiItemPath(type, shape, tip) {
-
+  function markMultiItemPath (type, shape, tip) {
     function attr(emit, item) {
       var items = item.mark.items;
       if (items.length) emit('d', shape(null, items));
@@ -1612,22 +1918,23 @@
 
     function bound(bounds, mark) {
       var items = mark.items;
+
       if (items.length === 0) {
         return bounds;
       } else {
-        shape(context(bounds), items);
+        shape(boundContext(bounds), items);
         return boundStroke(bounds, items[0]);
       }
     }
 
-    function draw(context$$1, items) {
-      context$$1.beginPath();
-      shape(context$$1, items);
+    function draw(context, items) {
+      context.beginPath();
+      shape(context, items);
     }
 
-    var hit = hitPath(draw);
+    const hit = hitPath(draw);
 
-    function pick$$1(context$$1, scene, x, y, gx, gy) {
+    function pick(context, scene, x, y, gx, gy) {
       var items = scene.items,
           b = scene.bounds;
 
@@ -1635,69 +1942,86 @@
         return null;
       }
 
-      x *= context$$1.pixelRatio;
-      y *= context$$1.pixelRatio;
-      return hit(context$$1, items, x, y) ? items[0] : null;
+      x *= context.pixelRatio;
+      y *= context.pixelRatio;
+      return hit(context, items, x, y) ? items[0] : null;
     }
 
     return {
-      type:   type,
-      tag:    'path',
+      type: type,
+      tag: 'path',
       nested: true,
-      attr:   attr,
-      bound:  bound,
-      draw:   drawOne(draw),
-      pick:   pick$$1,
-      tip:    tip
+      attr: attr,
+      bound: bound,
+      draw: drawOne(draw),
+      pick: pick,
+      isect: intersectPoint,
+      tip: tip
     };
-
   }
 
-  var area$1 = markMultiItemPath('area', area, pickArea);
+  var area = markMultiItemPath('area', area$1, pickArea);
 
-  var clip_id = 1;
-
-  function resetSVGClipId() {
-    clip_id = 1;
-  }
-
-  function clip(renderer, item, size) {
-    var clip = item.clip,
-        defs = renderer._defs,
-        id = item.clip_id || (item.clip_id = 'clip' + clip_id++),
-        c = defs.clipping[id] || (defs.clipping[id] = {id: id});
+  function clip (context, scene) {
+    var clip = scene.clip;
+    context.save();
 
     if (vegaUtil.isFunction(clip)) {
-      c.path = clip(null);
+      context.beginPath();
+      clip(context);
+      context.clip();
     } else {
-      c.width = size.width || 0;
-      c.height = size.height || 0;
+      clipGroup(context, scene.group);
     }
-
-    return 'url(#' + id + ')';
+  }
+  function clipGroup(context, group) {
+    context.beginPath();
+    hasCornerRadius(group) ? rectangle(context, group, 0, 0) : context.rect(0, 0, group.width || 0, group.height || 0);
+    context.clip();
   }
 
-  var StrokeOffset = 0.5;
+  function offset$1(item) {
+    const sw = value(item.strokeWidth, 1);
+    return item.strokeOffset != null ? item.strokeOffset : item.stroke && sw > 0.5 && sw < 1.5 ? 0.5 - Math.abs(sw - 1) : 0;
+  }
 
-  function attr(emit, item) {
+  function attr$5(emit, item) {
     emit('transform', translateItem(item));
   }
 
-  function background(emit, item) {
-    var offset = item.stroke ? StrokeOffset : 0;
-    emit('class', 'background');
-    emit('d', rectangle(null, item, offset, offset));
+  function emitRectangle(emit, item) {
+    const off = offset$1(item);
+    emit('d', rectangle(null, item, off, off));
   }
 
-  function foreground(emit, item, renderer) {
-    var url = item.clip ? clip(renderer, item, item) : null;
+  function background(emit, item) {
+    emit('class', 'background');
+    emit('aria-hidden', true);
+    emitRectangle(emit, item);
+  }
+
+  function foreground(emit, item) {
+    emit('class', 'foreground');
+    emit('aria-hidden', true);
+
+    if (item.strokeForeground) {
+      emitRectangle(emit, item);
+    } else {
+      emit('d', '');
+    }
+  }
+
+  function content(emit, item, renderer) {
+    const url = item.clip ? clip$1(renderer, item, item) : null;
     emit('clip-path', url);
   }
 
-  function bound(bounds, group) {
+  function bound$5(bounds, group) {
     if (!group.clip && group.items) {
-      var items = group.items;
-      for (var j=0, m=items.length; j<m; ++j) {
+      const items = group.items,
+            m = items.length;
+
+      for (let j = 0; j < m; ++j) {
         bounds.union(items[j].bounds);
       }
     }
@@ -1707,105 +2031,108 @@
     }
 
     boundStroke(bounds, group);
-
     return bounds.translate(group.x || 0, group.y || 0);
   }
 
-  function backgroundPath(context, group) {
-    var offset = group.stroke ? StrokeOffset : 0;
+  function rectanglePath(context, group, x, y) {
+    const off = offset$1(group);
     context.beginPath();
-    rectangle(context, group, offset, offset);
+    rectangle(context, group, (x || 0) + off, (y || 0) + off);
   }
 
-  var hitBackground = hitPath(backgroundPath);
+  const hitBackground = hitPath(rectanglePath);
+  const hitForeground = hitPath(rectanglePath, false);
+  const hitCorner = hitPath(rectanglePath, true);
 
-  function draw(context, scene, bounds) {
-    var renderer = this;
+  function draw$4(context, scene, bounds) {
+    visit(scene, group => {
+      const gx = group.x || 0,
+            gy = group.y || 0,
+            fore = group.strokeForeground,
+            opacity = group.opacity == null ? 1 : group.opacity; // draw group background
 
-    visit(scene, function(group) {
-      var gx = group.x || 0,
-          gy = group.y || 0,
-          w = group.width || 0,
-          h = group.height || 0,
-          opacity;
+      if ((group.stroke || group.fill) && opacity) {
+        rectanglePath(context, group, gx, gy);
+        blend(context, group);
 
-      // setup graphics context
+        if (group.fill && fill(context, group, opacity)) {
+          context.fill();
+        }
+
+        if (group.stroke && !fore && stroke(context, group, opacity)) {
+          context.stroke();
+        }
+      } // setup graphics context, set clip and bounds
+
+
       context.save();
       context.translate(gx, gy);
+      if (group.clip) clipGroup(context, group);
+      if (bounds) bounds.translate(-gx, -gy); // draw group contents
 
-      // draw group background
-      if (group.stroke || group.fill) {
-        opacity = group.opacity == null ? 1 : group.opacity;
-        if (opacity > 0) {
-          backgroundPath(context, group);
-          if (group.fill && fill(context, group, opacity)) {
-            context.fill();
-          }
-          if (group.stroke && stroke(context, group, opacity)) {
-            context.stroke();
-          }
+      visit(group, item => {
+        this.draw(context, item, bounds);
+      }); // restore graphics context
+
+      if (bounds) bounds.translate(gx, gy);
+      context.restore(); // draw group foreground
+
+      if (fore && group.stroke && opacity) {
+        rectanglePath(context, group, gx, gy);
+        blend(context, group);
+
+        if (stroke(context, group, opacity)) {
+          context.stroke();
         }
       }
-
-      // set clip and bounds
-      if (group.clip) {
-        context.beginPath();
-        context.rect(0, 0, w, h);
-        context.clip();
-      }
-      if (bounds) bounds.translate(-gx, -gy);
-
-      // draw group contents
-      visit(group, function(item) {
-        renderer.draw(context, item, bounds);
-      });
-
-      // restore graphics context
-      if (bounds) bounds.translate(gx, gy);
-      context.restore();
     });
   }
 
-  function pick$1(context, scene, x, y, gx, gy) {
+  function pick(context, scene, x, y, gx, gy) {
     if (scene.bounds && !scene.bounds.contains(gx, gy) || !scene.items) {
       return null;
     }
 
-    var handler = this,
-        cx = x * context.pixelRatio,
-        cy = y * context.pixelRatio;
+    const cx = x * context.pixelRatio,
+          cy = y * context.pixelRatio;
+    return pickVisit(scene, group => {
+      let hit, dx, dy; // first hit test bounding box
 
-    return pickVisit(scene, function(group) {
-      var hit, dx, dy, b;
+      const b = group.bounds;
+      if (b && !b.contains(gx, gy)) return; // passed bounds check, test rectangular clip
 
-      // first hit test against bounding box
-      // if a group is clipped, that should be handled by the bounds check.
-      b = group.bounds;
-      if (b && !b.contains(gx, gy)) return;
-
-      // passed bounds check, so test sub-groups
-      dx = (group.x || 0);
-      dy = (group.y || 0);
+      dx = group.x || 0;
+      dy = group.y || 0;
+      const dw = dx + (group.width || 0),
+            dh = dy + (group.height || 0),
+            c = group.clip;
+      if (c && (gx < dx || gx > dw || gy < dy || gy > dh)) return; // adjust coordinate system
 
       context.save();
       context.translate(dx, dy);
-
       dx = gx - dx;
-      dy = gy - dy;
+      dy = gy - dy; // test background for rounded corner clip
 
-      // hit test against contained marks
-      hit = pickVisit(group, function(mark) {
-        return pickMark(mark, dx, dy)
-          ? handler.pick(mark, x, y, dx, dy)
-          : null;
-      });
-
-      // hit test against group background
-      if (!hit && scene.interactive !== false
-          && (group.fill || group.stroke)
-          && hitBackground(context, group, cx, cy)) {
-        hit = group;
+      if (c && hasCornerRadius(group) && !hitCorner(context, group, cx, cy)) {
+        context.restore();
+        return null;
       }
+
+      const fore = group.strokeForeground,
+            ix = scene.interactive !== false; // hit test against group foreground
+
+      if (ix && fore && group.stroke && hitForeground(context, group, cx, cy)) {
+        context.restore();
+        return group;
+      } // hit test against contained marks
+
+
+      hit = pickVisit(group, mark => pickMark(mark, dx, dy) ? this.pick(mark, x, y, dx, dy) : null); // hit test against group background
+
+      if (!hit && ix && (group.fill || !fore && group.stroke) && hitBackground(context, group, cx, cy)) {
+        hit = group;
+      } // restore state and return
+
 
       context.restore();
       return hit || null;
@@ -1813,32 +2140,53 @@
   }
 
   function pickMark(mark, x, y) {
-    return (mark.interactive !== false || mark.marktype === 'group')
-      && mark.bounds && mark.bounds.contains(x, y);
+    return (mark.interactive !== false || mark.marktype === 'group') && mark.bounds && mark.bounds.contains(x, y);
   }
 
   var group = {
-    type:       'group',
-    tag:        'g',
-    nested:     false,
-    attr:       attr,
-    bound:      bound,
-    draw:       draw,
-    pick:       pick$1,
+    type: 'group',
+    tag: 'g',
+    nested: false,
+    attr: attr$5,
+    bound: bound$5,
+    draw: draw$4,
+    pick: pick,
+    isect: intersectRect,
+    content: content,
     background: background,
     foreground: foreground
   };
 
+  var metadata = {
+    'xmlns': 'http://www.w3.org/2000/svg',
+    'xmlns:xlink': 'http://www.w3.org/1999/xlink',
+    'version': '1.1'
+  };
+
   function getImage(item, renderer) {
     var image = item.image;
-    if (!image || image.url !== item.url) {
-      image = {loaded: false, width: 0, height: 0};
-      renderer.loadImage(item.url).then(function(image) {
+
+    if (!image || item.url && item.url !== image.url) {
+      image = {
+        complete: false,
+        width: 0,
+        height: 0
+      };
+      renderer.loadImage(item.url).then(image => {
         item.image = image;
         item.image.url = item.url;
       });
     }
+
     return image;
+  }
+
+  function imageWidth(item, image) {
+    return item.width != null ? item.width : !image || !image.width ? 0 : item.aspect !== false && item.height ? item.height * image.width / image.height : image.width;
+  }
+
+  function imageHeight(item, image) {
+    return item.height != null ? item.height : !image || !image.height ? 0 : item.aspect !== false && item.width ? item.width * image.height / image.width : image.height;
   }
 
   function imageXOffset(align, w) {
@@ -1849,56 +2197,49 @@
     return baseline === 'middle' ? h / 2 : baseline === 'bottom' ? h : 0;
   }
 
-  function attr$1(emit, item, renderer) {
-    var image = getImage(item, renderer),
-        x = item.x || 0,
-        y = item.y || 0,
-        w = (item.width != null ? item.width : image.width) || 0,
-        h = (item.height != null ? item.height : image.height) || 0,
-        a = item.aspect === false ? 'none' : 'xMidYMid';
-
-    x -= imageXOffset(item.align, w);
-    y -= imageYOffset(item.baseline, h);
-
-    emit('href', image.src || '', 'http://www.w3.org/1999/xlink', 'xlink:href');
+  function attr$4(emit, item, renderer) {
+    const img = getImage(item, renderer),
+          w = imageWidth(item, img),
+          h = imageHeight(item, img),
+          x = (item.x || 0) - imageXOffset(item.align, w),
+          y = (item.y || 0) - imageYOffset(item.baseline, h),
+          i = !img.src && img.toDataURL ? img.toDataURL() : img.src || '';
+    emit('href', i, metadata['xmlns:xlink'], 'xlink:href');
     emit('transform', translate(x, y));
     emit('width', w);
     emit('height', h);
-    emit('preserveAspectRatio', a);
+    emit('preserveAspectRatio', item.aspect === false ? 'none' : 'xMidYMid');
   }
 
-  function bound$1(bounds, item) {
-    var image = item.image,
-        x = item.x || 0,
-        y = item.y || 0,
-        w = (item.width != null ? item.width : (image && image.width)) || 0,
-        h = (item.height != null ? item.height : (image && image.height)) || 0;
-
-    x -= imageXOffset(item.align, w);
-    y -= imageYOffset(item.baseline, h);
-
+  function bound$4(bounds, item) {
+    const img = item.image,
+          w = imageWidth(item, img),
+          h = imageHeight(item, img),
+          x = (item.x || 0) - imageXOffset(item.align, w),
+          y = (item.y || 0) - imageYOffset(item.baseline, h);
     return bounds.set(x, y, x + w, y + h);
   }
 
-  function draw$1(context, scene, bounds) {
-    var renderer = this;
-
-    visit(scene, function(item) {
+  function draw$3(context, scene, bounds) {
+    visit(scene, item => {
       if (bounds && !bounds.intersects(item.bounds)) return; // bounds check
 
-      var image = getImage(item, renderer),
-          x = item.x || 0,
-          y = item.y || 0,
-          w = (item.width != null ? item.width : image.width) || 0,
-          h = (item.height != null ? item.height : image.height) || 0,
-          opacity, ar0, ar1, t;
+      const img = getImage(item, this);
+      let w = imageWidth(item, img);
+      let h = imageHeight(item, img);
+      if (w === 0 || h === 0) return; // early exit
 
-      x -= imageXOffset(item.align, w);
-      y -= imageYOffset(item.baseline, h);
+      let x = (item.x || 0) - imageXOffset(item.align, w),
+          y = (item.y || 0) - imageYOffset(item.baseline, h),
+          opacity,
+          ar0,
+          ar1,
+          t;
 
       if (item.aspect !== false) {
-        ar0 = image.width / image.height;
+        ar0 = img.width / img.height;
         ar1 = item.width / item.height;
+
         if (ar0 === ar0 && ar1 === ar1 && ar0 !== ar1) {
           if (ar1 < ar0) {
             t = w / ar0;
@@ -1912,72 +2253,91 @@
         }
       }
 
-      if (image.loaded) {
+      if (img.complete || img.toDataURL) {
+        blend(context, item);
         context.globalAlpha = (opacity = item.opacity) != null ? opacity : 1;
-        context.drawImage(image, x, y, w, h);
+        context.imageSmoothingEnabled = item.smooth !== false;
+        context.drawImage(img, x, y, w, h);
       }
     });
   }
 
   var image = {
-    type:     'image',
-    tag:      'image',
-    nested:   false,
-    attr:     attr$1,
-    bound:    bound$1,
-    draw:     draw$1,
-    pick:     pick(),
-    get:      getImage,
-    xOffset:  imageXOffset,
-    yOffset:  imageYOffset
+    type: 'image',
+    tag: 'image',
+    nested: false,
+    attr: attr$4,
+    bound: bound$4,
+    draw: draw$3,
+    pick: pick$1(),
+    isect: vegaUtil.truthy,
+    // bounds check is sufficient
+    get: getImage,
+    xOffset: imageXOffset,
+    yOffset: imageYOffset
   };
 
-  var line$1 = markMultiItemPath('line', line, pickLine);
+  var line = markMultiItemPath('line', line$1, pickLine);
 
-  function attr$2(emit, item) {
-    emit('transform', translateItem(item));
+  function attr$3(emit, item) {
+    var sx = item.scaleX || 1,
+        sy = item.scaleY || 1;
+
+    if (sx !== 1 || sy !== 1) {
+      emit('vector-effect', 'non-scaling-stroke');
+    }
+
+    emit('transform', transformItem(item));
     emit('d', item.path);
   }
 
-  function path(context$$1, item) {
+  function path$1(context, item) {
     var path = item.path;
     if (path == null) return true;
+    var x = item.x || 0,
+        y = item.y || 0,
+        sx = item.scaleX || 1,
+        sy = item.scaleY || 1,
+        a = (item.angle || 0) * DegToRad,
+        cache = item.pathCache;
 
-    var cache = item.pathCache;
     if (!cache || cache.path !== path) {
       (item.pathCache = cache = pathParse(path)).path = path;
     }
-    pathRender(context$$1, cache, item.x, item.y);
-  }
 
-  function bound$2(bounds, item) {
-    return path(context(bounds), item)
-      ? bounds.set(0, 0, 0, 0)
-      : boundStroke(bounds, item);
-  }
-
-  var path$1 = {
-    type:   'path',
-    tag:    'path',
-    nested: false,
-    attr:   attr$2,
-    bound:  bound$2,
-    draw:   drawAll(path),
-    pick:   pickPath(path)
-  };
-
-  function attr$3(emit, item) {
-    emit('d', rectangle(null, item));
+    if (a && context.rotate && context.translate) {
+      context.translate(x, y);
+      context.rotate(a);
+      pathRender(context, cache, 0, 0, sx, sy);
+      context.rotate(-a);
+      context.translate(-x, -y);
+    } else {
+      pathRender(context, cache, x, y, sx, sy);
+    }
   }
 
   function bound$3(bounds, item) {
+    return path$1(boundContext(bounds, item.angle), item) ? bounds.set(0, 0, 0, 0) : boundStroke(bounds, item, true);
+  }
+
+  var path$2 = {
+    type: 'path',
+    tag: 'path',
+    nested: false,
+    attr: attr$3,
+    bound: bound$3,
+    draw: drawAll(path$1),
+    pick: pickPath(path$1),
+    isect: intersectPath(path$1)
+  };
+
+  function attr$2(emit, item) {
+    emit('d', rectangle(null, item));
+  }
+
+  function bound$2(bounds, item) {
     var x, y;
-    return boundStroke(bounds.set(
-      x = item.x || 0,
-      y = item.y || 0,
-      (x + item.width) || 0,
-      (y + item.height) || 0
-    ), item);
+    return boundStroke(bounds.set(x = item.x || 0, y = item.y || 0, x + item.width || 0, y + item.height || 0), item);
   }
 
   function draw$2(context, item) {
@@ -1986,32 +2346,28 @@
   }
 
   var rect = {
-    type:   'rect',
-    tag:    'path',
+    type: 'rect',
+    tag: 'path',
     nested: false,
-    attr:   attr$3,
-    bound:  bound$3,
-    draw:   drawAll(draw$2),
-    pick:   pickPath(draw$2)
+    attr: attr$2,
+    bound: bound$2,
+    draw: drawAll(draw$2),
+    pick: pickPath(draw$2),
+    isect: intersectRect
   };
 
-  function attr$4(emit, item) {
+  function attr$1(emit, item) {
     emit('transform', translateItem(item));
-    emit('x2', item.x2 != null ? item.x2 - (item.x||0) : 0);
-    emit('y2', item.y2 != null ? item.y2 - (item.y||0) : 0);
+    emit('x2', item.x2 != null ? item.x2 - (item.x || 0) : 0);
+    emit('y2', item.y2 != null ? item.y2 - (item.y || 0) : 0);
   }
 
-  function bound$4(bounds, item) {
+  function bound$1(bounds, item) {
     var x1, y1;
-    return boundStroke(bounds.set(
-      x1 = item.x || 0,
-      y1 = item.y || 0,
-      item.x2 != null ? item.x2 : x1,
-      item.y2 != null ? item.y2 : y1
-    ), item);
+    return boundStroke(bounds.set(x1 = item.x || 0, y1 = item.y || 0, item.x2 != null ? item.x2 : x1, item.y2 != null ? item.y2 : y1), item);
   }
 
-  function path$2(context, item, opacity) {
+  function path(context, item, opacity) {
     var x1, y1, x2, y2;
 
     if (item.stroke && stroke(context, item, opacity)) {
@@ -2024,41 +2380,44 @@
       context.lineTo(x2, y2);
       return true;
     }
+
     return false;
   }
 
-  function draw$3(context, scene, bounds) {
-    visit(scene, function(item) {
+  function draw$1(context, scene, bounds) {
+    visit(scene, item => {
       if (bounds && !bounds.intersects(item.bounds)) return; // bounds check
+
       var opacity = item.opacity == null ? 1 : item.opacity;
-      if (opacity && path$2(context, item, opacity)) {
+
+      if (opacity && path(context, item, opacity)) {
+        blend(context, item);
         context.stroke();
       }
     });
   }
 
-  function hit(context, item, x, y) {
+  function hit$1(context, item, x, y) {
     if (!context.isPointInStroke) return false;
-    return path$2(context, item, 1) && context.isPointInStroke(x, y);
+    return path(context, item, 1) && context.isPointInStroke(x, y);
   }
 
   var rule = {
-    type:   'rule',
-    tag:    'line',
+    type: 'rule',
+    tag: 'line',
     nested: false,
-    attr:   attr$4,
-    bound:  bound$4,
-    draw:   draw$3,
-    pick:   pick(hit)
+    attr: attr$1,
+    bound: bound$1,
+    draw: draw$1,
+    pick: pick$1(hit$1),
+    isect: intersectRule
   };
 
-  var shape$1 = markItemPath('shape', shape);
+  var shape = markItemPath('shape', shape$1);
 
-  var symbol$1 = markItemPath('symbol', symbol);
+  var symbol = markItemPath('symbol', symbol$1, intersectPoint);
 
-  var context$1,
-      currFontHeight;
-
+  const widthCache = vegaUtil.lruCache();
   var textMetrics = {
     height: fontSize,
     measureWidth: measureWidth,
@@ -2066,277 +2425,331 @@
     width: estimateWidth,
     canvas: useCanvas
   };
-
   useCanvas(true);
 
-  // make dumb, simple estimate if no canvas is available
-  function estimateWidth(item) {
-    currFontHeight = fontSize(item);
-    return estimate(textValue(item));
+  function useCanvas(use) {
+    textMetrics.width = use && context ? measureWidth : estimateWidth;
+  } // make simple estimate if no canvas is available
+
+
+  function estimateWidth(item, text) {
+    return _estimateWidth(textValue(item, text), fontSize(item));
   }
 
-  function estimate(text) {
-    return ~~(0.8 * text.length * currFontHeight);
+  function _estimateWidth(text, currentFontHeight) {
+    return ~~(0.8 * text.length * currentFontHeight);
+  } // measure text width if canvas is available
+
+
+  function measureWidth(item, text) {
+    return fontSize(item) <= 0 || !(text = textValue(item, text)) ? 0 : _measureWidth(text, font(item));
   }
 
-  // measure text width if canvas is available
-  function measureWidth(item) {
-    context$1.font = font(item);
-    return measure(textValue(item));
-  }
+  function _measureWidth(text, currentFont) {
+    const key = `(${currentFont}) ${text}`;
+    let width = widthCache.get(key);
 
-  function measure(text) {
-    return context$1.measureText(text).width;
+    if (width === undefined) {
+      context.font = currentFont;
+      width = context.measureText(text).width;
+      widthCache.set(key, width);
+    }
+
+    return width;
   }
 
   function fontSize(item) {
-    return item.fontSize != null ? item.fontSize : 11;
+    return item.fontSize != null ? +item.fontSize || 0 : 11;
+  }
+  function lineHeight(item) {
+    return item.lineHeight != null ? item.lineHeight : fontSize(item) + 2;
   }
 
-  function useCanvas(use) {
-    context$1 = use && (context$1 = vegaCanvas.canvas(1,1)) ? context$1.getContext('2d') : null;
-    textMetrics.width = context$1 ? measureWidth : estimateWidth;
+  function lineArray(_) {
+    return vegaUtil.isArray(_) ? _.length > 1 ? _ : _[0] : _;
   }
 
-  function textValue(item) {
-    var s = item.text;
-    if (s == null) {
-      return '';
+  function textLines(item) {
+    return lineArray(item.lineBreak && item.text && !vegaUtil.isArray(item.text) ? item.text.split(item.lineBreak) : item.text);
+  }
+  function multiLineOffset(item) {
+    const tl = textLines(item);
+    return (vegaUtil.isArray(tl) ? tl.length - 1 : 0) * lineHeight(item);
+  }
+  function textValue(item, line) {
+    const text = line == null ? '' : (line + '').trim();
+    return item.limit > 0 && text.length ? truncate(item, text) : text;
+  }
+
+  function widthGetter(item) {
+    if (textMetrics.width === measureWidth) {
+      // we are using canvas
+      const currentFont = font(item);
+      return text => _measureWidth(text, currentFont);
     } else {
-      return item.limit > 0 ? truncate(item) : s + '';
+      // we are relying on estimates
+      const currentFontHeight = fontSize(item);
+      return text => _estimateWidth(text, currentFontHeight);
     }
   }
 
-  function truncate(item) {
+  function truncate(item, text) {
     var limit = +item.limit,
-        text = item.text + '',
-        width;
-
-    if (context$1) {
-      context$1.font = font(item);
-      width = measure;
-    } else {
-      currFontHeight = fontSize(item);
-      width = estimate;
-    }
-
+        width = widthGetter(item);
     if (width(text) < limit) return text;
-
     var ellipsis = item.ellipsis || '\u2026',
         rtl = item.dir === 'rtl',
         lo = 0,
-        hi = text.length, mid;
-
+        hi = text.length,
+        mid;
     limit -= width(ellipsis);
 
     if (rtl) {
       while (lo < hi) {
-        mid = (lo + hi >>> 1);
-        if (width(text.slice(mid)) > limit) lo = mid + 1;
-        else hi = mid;
+        mid = lo + hi >>> 1;
+        if (width(text.slice(mid)) > limit) lo = mid + 1;else hi = mid;
       }
+
       return ellipsis + text.slice(lo);
     } else {
       while (lo < hi) {
         mid = 1 + (lo + hi >>> 1);
-        if (width(text.slice(0, mid)) < limit) lo = mid;
-        else hi = mid - 1;
+        if (width(text.slice(0, mid)) < limit) lo = mid;else hi = mid - 1;
       }
+
       return text.slice(0, lo) + ellipsis;
     }
   }
 
   function fontFamily(item, quote) {
     var font = item.font;
-    return (quote && font
-      ? String(font).replace(/"/g, '\'')
-      : font) || 'sans-serif';
+    return (quote && font ? String(font).replace(/"/g, '\'') : font) || 'sans-serif';
   }
-
   function font(item, quote) {
-    return '' +
-      (item.fontStyle ? item.fontStyle + ' ' : '') +
-      (item.fontVariant ? item.fontVariant + ' ' : '') +
-      (item.fontWeight ? item.fontWeight + ' ' : '') +
-      fontSize(item) + 'px ' +
-      fontFamily(item, quote);
+    return '' + (item.fontStyle ? item.fontStyle + ' ' : '') + (item.fontVariant ? item.fontVariant + ' ' : '') + (item.fontWeight ? item.fontWeight + ' ' : '') + fontSize(item) + 'px ' + fontFamily(item, quote);
   }
-
   function offset(item) {
     // perform our own font baseline calculation
     // why? not all browsers support SVG 1.1 'alignment-baseline' :(
+    // this also ensures consistent layout across renderers
     var baseline = item.baseline,
         h = fontSize(item);
-    return Math.round(
-      baseline === 'top'    ?  0.79*h :
-      baseline === 'middle' ?  0.30*h :
-      baseline === 'bottom' ? -0.21*h : 0
-    );
+    return Math.round(baseline === 'top' ? 0.79 * h : baseline === 'middle' ? 0.30 * h : baseline === 'bottom' ? -0.21 * h : baseline === 'line-top' ? 0.29 * h + 0.5 * lineHeight(item) : baseline === 'line-bottom' ? 0.29 * h - 0.5 * lineHeight(item) : 0);
   }
 
-  var textAlign = {
-    'left':   'start',
+  const textAlign = {
+    'left': 'start',
     'center': 'middle',
-    'right':  'end'
+    'right': 'end'
   };
+  const tempBounds = new Bounds();
 
-  var tempBounds = new Bounds();
-
-  function attr$5(emit, item) {
-    var dx = item.dx || 0,
-        dy = (item.dy || 0) + offset(item),
-        x = item.x || 0,
+  function anchorPoint(item) {
+    var x = item.x || 0,
         y = item.y || 0,
-        a = item.angle || 0,
-        r = item.radius || 0, t;
+        r = item.radius || 0,
+        t;
 
     if (r) {
-      t = (item.theta || 0) - Math.PI/2;
+      t = (item.theta || 0) - HalfPi;
       x += r * Math.cos(t);
       y += r * Math.sin(t);
     }
 
+    tempBounds.x1 = x;
+    tempBounds.y1 = y;
+    return tempBounds;
+  }
+
+  function attr(emit, item) {
+    var dx = item.dx || 0,
+        dy = (item.dy || 0) + offset(item),
+        p = anchorPoint(item),
+        x = p.x1,
+        y = p.y1,
+        a = item.angle || 0,
+        t;
     emit('text-anchor', textAlign[item.align] || 'start');
 
     if (a) {
-      t = translate(x, y) + ' rotate('+a+')';
+      t = translate(x, y) + ' ' + rotate(a);
       if (dx || dy) t += ' ' + translate(dx, dy);
     } else {
       t = translate(x + dx, y + dy);
     }
+
     emit('transform', t);
   }
 
-  function bound$5(bounds, item, noRotate) {
+  function bound(bounds, item, mode) {
     var h = textMetrics.height(item),
         a = item.align,
-        r = item.radius || 0,
-        x = item.x || 0,
-        y = item.y || 0,
+        p = anchorPoint(item),
+        x = p.x1,
+        y = p.y1,
         dx = item.dx || 0,
-        dy = (item.dy || 0) + offset(item) - Math.round(0.8*h), // use 4/5 offset
-        w, t;
+        dy = (item.dy || 0) + offset(item) - Math.round(0.8 * h),
+        // use 4/5 offset
+    tl = textLines(item),
+        w; // get dimensions
 
-    if (r) {
-      t = (item.theta || 0) - Math.PI/2;
-      x += r * Math.cos(t);
-      y += r * Math.sin(t);
-    }
+    if (vegaUtil.isArray(tl)) {
+      // multi-line text
+      h += lineHeight(item) * (tl.length - 1);
+      w = tl.reduce((w, t) => Math.max(w, textMetrics.width(item, t)), 0);
+    } else {
+      // single-line text
+      w = textMetrics.width(item, tl);
+    } // horizontal alignment
 
-    // horizontal alignment
-    w = textMetrics.width(item);
+
     if (a === 'center') {
-      dx -= (w / 2);
+      dx -= w / 2;
     } else if (a === 'right') {
       dx -= w;
+    } else ;
+
+    bounds.set(dx += x, dy += y, dx + w, dy + h);
+
+    if (item.angle && !mode) {
+      bounds.rotate(item.angle * DegToRad, x, y);
+    } else if (mode === 2) {
+      return bounds.rotatedPoints(item.angle * DegToRad, x, y);
     }
 
-    bounds.set(dx+=x, dy+=y, dx+w, dy+h);
-    if (item.angle && !noRotate) {
-      bounds.rotate(item.angle*Math.PI/180, x, y);
-    }
-    return bounds.expand(noRotate || !w ? 0 : 1);
+    return bounds;
   }
 
-  function draw$4(context, scene, bounds) {
-    visit(scene, function(item) {
-      var opacity, x, y, r, t, str;
-      if (bounds && !bounds.intersects(item.bounds)) return; // bounds check
-      if (!(str = textValue(item))) return; // get text string
-
-      opacity = item.opacity == null ? 1 : item.opacity;
-      if (opacity === 0) return;
-
+  function draw(context, scene, bounds) {
+    visit(scene, item => {
+      var opacity = item.opacity == null ? 1 : item.opacity,
+          p,
+          x,
+          y,
+          i,
+          lh,
+          tl,
+          str;
+      if (bounds && !bounds.intersects(item.bounds) || // bounds check
+      opacity === 0 || item.fontSize <= 0 || item.text == null || item.text.length === 0) return;
       context.font = font(item);
       context.textAlign = item.align || 'left';
-
-      x = item.x || 0;
-      y = item.y || 0;
-      if ((r = item.radius)) {
-        t = (item.theta || 0) - Math.PI/2;
-        x += r * Math.cos(t);
-        y += r * Math.sin(t);
-      }
+      p = anchorPoint(item);
+      x = p.x1, y = p.y1;
 
       if (item.angle) {
         context.save();
         context.translate(x, y);
-        context.rotate(item.angle * Math.PI/180);
+        context.rotate(item.angle * DegToRad);
         x = y = 0; // reset x, y
       }
-      x += (item.dx || 0);
-      y += (item.dy || 0) + offset(item);
 
-      if (item.fill && fill(context, item, opacity)) {
-        context.fillText(str, x, y);
+      x += item.dx || 0;
+      y += (item.dy || 0) + offset(item);
+      tl = textLines(item);
+      blend(context, item);
+
+      if (vegaUtil.isArray(tl)) {
+        lh = lineHeight(item);
+
+        for (i = 0; i < tl.length; ++i) {
+          str = textValue(item, tl[i]);
+
+          if (item.fill && fill(context, item, opacity)) {
+            context.fillText(str, x, y);
+          }
+
+          if (item.stroke && stroke(context, item, opacity)) {
+            context.strokeText(str, x, y);
+          }
+
+          y += lh;
+        }
+      } else {
+        str = textValue(item, tl);
+
+        if (item.fill && fill(context, item, opacity)) {
+          context.fillText(str, x, y);
+        }
+
+        if (item.stroke && stroke(context, item, opacity)) {
+          context.strokeText(str, x, y);
+        }
       }
-      if (item.stroke && stroke(context, item, opacity)) {
-        context.strokeText(str, x, y);
-      }
+
       if (item.angle) context.restore();
     });
   }
 
-  function hit$1(context, item, x, y, gx, gy) {
+  function hit(context, item, x, y, gx, gy) {
     if (item.fontSize <= 0) return false;
     if (!item.angle) return true; // bounds sufficient if no rotation
-
     // project point into space of unrotated bounds
-    var b = bound$5(tempBounds, item, true),
-        a = -item.angle * Math.PI / 180,
+
+    var p = anchorPoint(item),
+        ax = p.x1,
+        ay = p.y1,
+        b = bound(tempBounds, item, 1),
+        a = -item.angle * DegToRad,
         cos = Math.cos(a),
         sin = Math.sin(a),
-        ix = item.x,
-        iy = item.y,
-        px = cos*gx - sin*gy + (ix - ix*cos + iy*sin),
-        py = sin*gx + cos*gy + (iy - ix*sin - iy*cos);
-
+        px = cos * gx - sin * gy + (ax - cos * ax + sin * ay),
+        py = sin * gx + cos * gy + (ay - sin * ax - cos * ay);
     return b.contains(px, py);
   }
 
+  function intersectText(item, box) {
+    const p = bound(tempBounds, item, 2);
+    return intersectBoxLine(box, p[0], p[1], p[2], p[3]) || intersectBoxLine(box, p[0], p[1], p[4], p[5]) || intersectBoxLine(box, p[4], p[5], p[6], p[7]) || intersectBoxLine(box, p[2], p[3], p[6], p[7]);
+  }
+
   var text = {
-    type:   'text',
-    tag:    'text',
+    type: 'text',
+    tag: 'text',
     nested: false,
-    attr:   attr$5,
-    bound:  bound$5,
-    draw:   draw$4,
-    pick:   pick(hit$1)
+    attr: attr,
+    bound: bound,
+    draw: draw,
+    pick: pick$1(hit),
+    isect: intersectText
   };
 
-  var trail$1 = markMultiItemPath('trail', trail, pickTrail);
+  var trail = markMultiItemPath('trail', trail$1, pickTrail);
 
-  var marks = {
-    arc:     arc$1,
-    area:    area$1,
-    group:   group,
-    image:   image,
-    line:    line$1,
-    path:    path$1,
-    rect:    rect,
-    rule:    rule,
-    shape:   shape$1,
-    symbol:  symbol$1,
-    text:    text,
-    trail:   trail$1
+  var Marks = {
+    arc: arc,
+    area: area,
+    group: group,
+    image: image,
+    line: line,
+    path: path$2,
+    rect: rect,
+    rule: rule,
+    shape: shape,
+    symbol: symbol,
+    text: text,
+    trail: trail
   };
 
-  function boundItem(item, func, opt) {
-    var type = marks[item.mark.marktype],
+  function boundItem (item, func, opt) {
+    var type = Marks[item.mark.marktype],
         bound = func || type.bound;
     if (type.nested) item = item.mark;
-
     return bound(item.bounds || (item.bounds = new Bounds()), item, opt);
   }
 
-  var DUMMY = {mark: null};
-
-  function boundMark(mark, bounds, opt) {
-    var type  = marks[mark.marktype],
+  var DUMMY = {
+    mark: null
+  };
+  function boundMark (mark, bounds, opt) {
+    var type = Marks[mark.marktype],
         bound = type.bound,
         items = mark.items,
         hasItems = items && items.length,
-        i, n, item, b;
+        i,
+        n,
+        item,
+        b;
 
     if (type.nested) {
       if (hasItems) {
@@ -2346,17 +2759,16 @@
         DUMMY.mark = mark;
         item = DUMMY;
       }
+
       b = boundItem(item, bound, opt);
       bounds = bounds && bounds.union(b) || b;
       return bounds;
     }
 
-    bounds = bounds
-      || mark.bounds && mark.bounds.clear()
-      || new Bounds();
+    bounds = bounds || mark.bounds && mark.bounds.clear() || new Bounds();
 
     if (hasItems) {
-      for (i=0, n=items.length; i<n; ++i) {
+      for (i = 0, n = items.length; i < n; ++i) {
         bounds.union(boundItem(items[i], bound, opt));
       }
     }
@@ -2364,39 +2776,40 @@
     return mark.bounds = bounds;
   }
 
-  var keys = [
-    'marktype', 'name', 'role', 'interactive', 'clip', 'items', 'zindex',
-    'x', 'y', 'width', 'height', 'align', 'baseline',             // layout
-    'fill', 'fillOpacity', 'opacity',                             // fill
-    'stroke', 'strokeOpacity', 'strokeWidth', 'strokeCap',        // stroke
-    'strokeDash', 'strokeDashOffset',                             // stroke dash
-    'startAngle', 'endAngle', 'innerRadius', 'outerRadius',       // arc
-    'cornerRadius', 'padAngle',                                   // arc, rect
-    'interpolate', 'tension', 'orient', 'defined',                // area, line
-    'url',                                                        // image
-    'path',                                                       // path
-    'x2', 'y2',                                                   // rule
-    'size', 'shape',                                              // symbol
-    'text', 'angle', 'theta', 'radius', 'dx', 'dy',               // text
-    'font', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariant'  // font
+  const keys = ['marktype', 'name', 'role', 'interactive', 'clip', 'items', 'zindex', 'x', 'y', 'width', 'height', 'align', 'baseline', // layout
+  'fill', 'fillOpacity', 'opacity', 'blend', // fill
+  'stroke', 'strokeOpacity', 'strokeWidth', 'strokeCap', // stroke
+  'strokeDash', 'strokeDashOffset', // stroke dash
+  'strokeForeground', 'strokeOffset', // group
+  'startAngle', 'endAngle', 'innerRadius', 'outerRadius', // arc
+  'cornerRadius', 'padAngle', // arc, rect
+  'cornerRadiusTopLeft', 'cornerRadiusTopRight', // rect, group
+  'cornerRadiusBottomLeft', 'cornerRadiusBottomRight', 'interpolate', 'tension', 'orient', 'defined', // area, line
+  'url', 'aspect', 'smooth', // image
+  'path', 'scaleX', 'scaleY', // path
+  'x2', 'y2', // rule
+  'size', 'shape', // symbol
+  'text', 'angle', 'theta', 'radius', 'dir', 'dx', 'dy', // text
+  'ellipsis', 'limit', 'lineBreak', 'lineHeight', 'font', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariant', // font
+  'description', 'aria', 'ariaRole', 'ariaRoleDescription' // aria
   ];
-
   function sceneToJSON(scene, indent) {
     return JSON.stringify(scene, keys, indent);
   }
-
   function sceneFromJSON(json) {
-    var scene = (typeof json === 'string' ? JSON.parse(json) : json);
+    const scene = typeof json === 'string' ? JSON.parse(json) : json;
     return initialize(scene);
   }
 
   function initialize(scene) {
     var type = scene.marktype,
         items = scene.items,
-        parent, i, n;
+        parent,
+        i,
+        n;
 
     if (items) {
-      for (i=0, n=items.length; i<n; ++i) {
+      for (i = 0, n = items.length; i < n; ++i) {
         parent = type ? 'mark' : 'group';
         items[i][parent] = scene;
         if (items[i].zindex) items[i][parent].zdirty = true;
@@ -2420,33 +2833,43 @@
       this.root.items = [new GroupItem(this.root)];
     }
   }
+  Scenegraph.prototype = {
+    toJSON(indent) {
+      return sceneToJSON(this.root, indent || 0);
+    },
 
-  var prototype$2 = Scenegraph.prototype;
+    mark(markdef, group, index) {
+      group = group || this.root.items[0];
+      const mark = createMark(markdef, group);
+      group.items[index] = mark;
+      if (mark.zindex) mark.group.zdirty = true;
+      return mark;
+    }
 
-  prototype$2.toJSON = function(indent) {
-    return sceneToJSON(this.root, indent || 0);
-  };
-
-  prototype$2.mark = function(markdef, group, index) {
-    group = group || this.root.items[0];
-    var mark = createMark(markdef, group);
-    group.items[index] = mark;
-    if (mark.zindex) mark.group.zdirty = true;
-    return mark;
   };
 
   function createMark(def, group) {
-    return {
-      bounds:      new Bounds(),
-      clip:        !!def.clip,
-      group:       group,
+    const mark = {
+      bounds: new Bounds(),
+      clip: !!def.clip,
+      group: group,
       interactive: def.interactive === false ? false : true,
-      items:       [],
-      marktype:    def.marktype,
-      name:        def.name || undefined,
-      role:        def.role || undefined,
-      zindex:      def.zindex || 0
-    };
+      items: [],
+      marktype: def.marktype,
+      name: def.name || undefined,
+      role: def.role || undefined,
+      zindex: def.zindex || 0
+    }; // add accessibility properties if defined
+
+    if (def.aria != null) {
+      mark.aria = def.aria;
+    }
+
+    if (def.description) {
+      mark.description = def.description;
+    }
+
+    return mark;
   }
 
   // create a new DOM element
@@ -2454,73 +2877,72 @@
     if (!doc && typeof document !== 'undefined' && document.createElement) {
       doc = document;
     }
-    return doc
-      ? (ns ? doc.createElementNS(ns, tag) : doc.createElement(tag))
-      : null;
-  }
 
-  // find first child element with matching tag
+    return doc ? ns ? doc.createElementNS(ns, tag) : doc.createElement(tag) : null;
+  } // find first child element with matching tag
+
   function domFind(el, tag) {
     tag = tag.toLowerCase();
-    var nodes = el.childNodes, i = 0, n = nodes.length;
-    for (; i<n; ++i) if (nodes[i].tagName.toLowerCase() === tag) {
+    var nodes = el.childNodes,
+        i = 0,
+        n = nodes.length;
+
+    for (; i < n; ++i) if (nodes[i].tagName.toLowerCase() === tag) {
       return nodes[i];
     }
-  }
-
-  // retrieve child element at given index
+  } // retrieve child element at given index
   // create & insert if doesn't exist or if tags do not match
+
   function domChild(el, index, tag, ns) {
-    var a = el.childNodes[index], b;
+    var a = el.childNodes[index],
+        b;
+
     if (!a || a.tagName.toLowerCase() !== tag.toLowerCase()) {
       b = a || null;
       a = domCreate(el.ownerDocument, tag, ns);
       el.insertBefore(a, b);
     }
-    return a;
-  }
 
-  // remove all child elements at or above the given index
+    return a;
+  } // remove all child elements at or above the given index
+
   function domClear(el, index) {
     var nodes = el.childNodes,
         curr = nodes.length;
+
     while (curr > index) el.removeChild(nodes[--curr]);
+
     return el;
-  }
+  } // generate css class name for mark
 
-  // generate css class name for mark
   function cssClass(mark) {
-    return 'mark-' + mark.marktype
-      + (mark.role ? ' role-' + mark.role : '')
-      + (mark.name ? ' ' + mark.name : '');
+    return 'mark-' + mark.marktype + (mark.role ? ' role-' + mark.role : '') + (mark.name ? ' ' + mark.name : '');
   }
 
-  function point(event, el) {
+  function point (event, el) {
     if (isFinite(event.offsetX) && !isNaN(event.offsetX)) {
-      return [
-        event.offsetX - (el.clientLeft || 0),
-        event.offsetY - (el.clientTop || 0)
-      ];
+      return [event.offsetX - (el.clientLeft || 0), event.offsetY - (el.clientTop || 0)];
     }
-    var rect = el.getBoundingClientRect();
-    return [
-      event.clientX - rect.left - (el.clientLeft || 0),
-      event.clientY - rect.top - (el.clientTop || 0)
-    ];
+
+    const rect = el.getBoundingClientRect();
+    return [event.clientX - rect.left - (el.clientLeft || 0), event.clientY - rect.top - (el.clientTop || 0)];
   }
 
-  function resolveItem(item, event, el, origin) {
+  function resolveItem (item, event, el, origin) {
     var mark = item && item.mark,
-        mdef, p;
+        mdef,
+        p;
 
-    if (mark && (mdef = marks[mark.marktype]).tip) {
+    if (mark && (mdef = Marks[mark.marktype]).tip) {
       p = point(event, el);
       p[0] -= origin[0];
       p[1] -= origin[1];
+
       while (item = item.mark.group) {
         p[0] -= item.x || 0;
         p[1] -= item.y || 0;
       }
+
       item = mdef.tip(mark.items, p);
     }
 
@@ -2536,198 +2958,212 @@
    *   function for custom tooltip display.
    * @constructor
    */
+
   function Handler(customLoader, customTooltip) {
     this._active = null;
     this._handlers = {};
     this._loader = customLoader || vegaLoader.loader();
     this._tooltip = customTooltip || defaultTooltip;
-  }
-
-  // The default tooltip display handler.
+  } // The default tooltip display handler.
   // Sets the HTML title attribute on the visualization container.
+
   function defaultTooltip(handler, event, item, value) {
     handler.element().setAttribute('title', value || '');
   }
 
-  var prototype$3 = Handler.prototype;
+  Handler.prototype = {
+    /**
+     * Initialize a new Handler instance.
+     * @param {DOMElement} el - The containing DOM element for the display.
+     * @param {Array<number>} origin - The origin of the display, in pixels.
+     *   The coordinate system will be translated to this point.
+     * @param {object} [obj] - Optional context object that should serve as
+     *   the "this" context for event callbacks.
+     * @return {Handler} - This handler instance.
+     */
+    initialize(el, origin, obj) {
+      this._el = el;
+      this._obj = obj || null;
+      return this.origin(origin);
+    },
 
-  /**
-   * Initialize a new Handler instance.
-   * @param {DOMElement} el - The containing DOM element for the display.
-   * @param {Array<number>} origin - The origin of the display, in pixels.
-   *   The coordinate system will be translated to this point.
-   * @param {object} [obj] - Optional context object that should serve as
-   *   the "this" context for event callbacks.
-   * @return {Handler} - This handler instance.
-   */
-  prototype$3.initialize = function(el, origin, obj) {
-    this._el = el;
-    this._obj = obj || null;
-    return this.origin(origin);
-  };
+    /**
+     * Returns the parent container element for a visualization.
+     * @return {DOMElement} - The containing DOM element.
+     */
+    element() {
+      return this._el;
+    },
 
-  /**
-   * Returns the parent container element for a visualization.
-   * @return {DOMElement} - The containing DOM element.
-   */
-  prototype$3.element = function() {
-    return this._el;
-  };
+    /**
+     * Returns the scene element (e.g., canvas or SVG) of the visualization
+     * Subclasses must override if the first child is not the scene element.
+     * @return {DOMElement} - The scene (e.g., canvas or SVG) element.
+     */
+    canvas() {
+      return this._el && this._el.firstChild;
+    },
 
-  /**
-   * Returns the scene element (e.g., canvas or SVG) of the visualization
-   * Subclasses must override if the first child is not the scene element.
-   * @return {DOMElement} - The scene (e.g., canvas or SVG) element.
-   */
-  prototype$3.canvas = function() {
-    return this._el && this._el.firstChild;
-  };
-
-  /**
-   * Get / set the origin coordinates of the visualization.
-   */
-  prototype$3.origin = function(origin) {
-    if (arguments.length) {
-      this._origin = origin || [0, 0];
-      return this;
-    } else {
-      return this._origin.slice();
-    }
-  };
-
-  /**
-   * Get / set the scenegraph root.
-   */
-  prototype$3.scene = function(scene) {
-    if (!arguments.length) return this._scene;
-    this._scene = scene;
-    return this;
-  };
-
-  /**
-   * Add an event handler. Subclasses should override this method.
-   */
-  prototype$3.on = function(/*type, handler*/) {};
-
-  /**
-   * Remove an event handler. Subclasses should override this method.
-   */
-  prototype$3.off = function(/*type, handler*/) {};
-
-  /**
-   * Utility method for finding the array index of an event handler.
-   * @param {Array} h - An array of registered event handlers.
-   * @param {string} type - The event type.
-   * @param {function} handler - The event handler instance to find.
-   * @return {number} - The handler's array index or -1 if not registered.
-   */
-  prototype$3._handlerIndex = function(h, type, handler) {
-    for (var i = h ? h.length : 0; --i>=0;) {
-      if (h[i].type === type && (!handler || h[i].handler === handler)) {
-        return i;
+    /**
+     * Get / set the origin coordinates of the visualization.
+     */
+    origin(origin) {
+      if (arguments.length) {
+        this._origin = origin || [0, 0];
+        return this;
+      } else {
+        return this._origin.slice();
       }
-    }
-    return -1;
-  };
+    },
 
-  /**
-   * Returns an array with registered event handlers.
-   * @param {string} [type] - The event type to query. Any annotations
-   *   are ignored; for example, for the argument "click.foo", ".foo" will
-   *   be ignored and the method returns all "click" handlers. If type is
-   *   null or unspecified, this method returns handlers for all types.
-   * @return {Array} - A new array containing all registered event handlers.
-   */
-  prototype$3.handlers = function(type) {
-    var h = this._handlers, a = [], k;
-    if (type) {
-      a.push.apply(a, h[this.eventName(type)]);
-    } else {
-      for (k in h) { a.push.apply(a, h[k]); }
-    }
-    return a;
-  };
+    /**
+     * Get / set the scenegraph root.
+     */
+    scene(scene) {
+      if (!arguments.length) return this._scene;
+      this._scene = scene;
+      return this;
+    },
 
-  /**
-   * Parses an event name string to return the specific event type.
-   * For example, given "click.foo" returns "click"
-   * @param {string} name - The input event type string.
-   * @return {string} - A string with the event type only.
-   */
-  prototype$3.eventName = function(name) {
-    var i = name.indexOf('.');
-    return i < 0 ? name : name.slice(0,i);
-  };
+    /**
+     * Add an event handler. Subclasses should override this method.
+     */
+    on()
+    /*type, handler*/
+    {},
 
-  /**
-   * Handle hyperlink navigation in response to an item.href value.
-   * @param {Event} event - The event triggering hyperlink navigation.
-   * @param {Item} item - The scenegraph item.
-   * @param {string} href - The URL to navigate to.
-   */
-  prototype$3.handleHref = function(event, item, href) {
-    this._loader
-      .sanitize(href, {context:'href'})
-      .then(function(opt) {
-        var e = new MouseEvent(event.type, event),
-            a = domCreate(null, 'a');
-        for (var name in opt) a.setAttribute(name, opt[name]);
+    /**
+     * Remove an event handler. Subclasses should override this method.
+     */
+    off()
+    /*type, handler*/
+    {},
+
+    /**
+     * Utility method for finding the array index of an event handler.
+     * @param {Array} h - An array of registered event handlers.
+     * @param {string} type - The event type.
+     * @param {function} handler - The event handler instance to find.
+     * @return {number} - The handler's array index or -1 if not registered.
+     */
+    _handlerIndex(h, type, handler) {
+      for (let i = h ? h.length : 0; --i >= 0;) {
+        if (h[i].type === type && (!handler || h[i].handler === handler)) {
+          return i;
+        }
+      }
+
+      return -1;
+    },
+
+    /**
+     * Returns an array with registered event handlers.
+     * @param {string} [type] - The event type to query. Any annotations
+     *   are ignored; for example, for the argument "click.foo", ".foo" will
+     *   be ignored and the method returns all "click" handlers. If type is
+     *   null or unspecified, this method returns handlers for all types.
+     * @return {Array} - A new array containing all registered event handlers.
+     */
+    handlers(type) {
+      const h = this._handlers,
+            a = [];
+
+      if (type) {
+        a.push(...h[this.eventName(type)]);
+      } else {
+        for (const k in h) {
+          a.push(...h[k]);
+        }
+      }
+
+      return a;
+    },
+
+    /**
+     * Parses an event name string to return the specific event type.
+     * For example, given "click.foo" returns "click"
+     * @param {string} name - The input event type string.
+     * @return {string} - A string with the event type only.
+     */
+    eventName(name) {
+      const i = name.indexOf('.');
+      return i < 0 ? name : name.slice(0, i);
+    },
+
+    /**
+     * Handle hyperlink navigation in response to an item.href value.
+     * @param {Event} event - The event triggering hyperlink navigation.
+     * @param {Item} item - The scenegraph item.
+     * @param {string} href - The URL to navigate to.
+     */
+    handleHref(event, item, href) {
+      this._loader.sanitize(href, {
+        context: 'href'
+      }).then(opt => {
+        const e = new MouseEvent(event.type, event),
+              a = domCreate(null, 'a');
+
+        for (const name in opt) a.setAttribute(name, opt[name]);
+
         a.dispatchEvent(e);
-      })
-      .catch(function() { /* do nothing */ });
-  };
+      }).catch(() => {
+        /* do nothing */
+      });
+    },
 
-  /**
-   * Handle tooltip display in response to an item.tooltip value.
-   * @param {Event} event - The event triggering tooltip display.
-   * @param {Item} item - The scenegraph item.
-   * @param {boolean} show - A boolean flag indicating whether
-   *   to show or hide a tooltip for the given item.
-   */
-  prototype$3.handleTooltip = function(event, item, show) {
-    if (item && item.tooltip != null) {
-      item = resolveItem(item, event, this.canvas(), this._origin);
-      var value = (show && item && item.tooltip) || null;
-      this._tooltip.call(this._obj, this, event, item, value);
+    /**
+     * Handle tooltip display in response to an item.tooltip value.
+     * @param {Event} event - The event triggering tooltip display.
+     * @param {Item} item - The scenegraph item.
+     * @param {boolean} show - A boolean flag indicating whether
+     *   to show or hide a tooltip for the given item.
+     */
+    handleTooltip(event, item, show) {
+      if (item && item.tooltip != null) {
+        item = resolveItem(item, event, this.canvas(), this._origin);
+        const value = show && item && item.tooltip || null;
+
+        this._tooltip.call(this._obj, this, event, item, value);
+      }
+    },
+
+    /**
+     * Returns the size of a scenegraph item and its position relative
+     * to the viewport.
+     * @param {Item} item - The scenegraph item.
+     * @return {object} - A bounding box object (compatible with the
+     *   DOMRect type) consisting of x, y, width, heigh, top, left,
+     *   right, and bottom properties.
+     */
+    getItemBoundingClientRect(item) {
+      const el = this.canvas();
+      if (!el) return;
+      const rect = el.getBoundingClientRect(),
+            origin = this._origin,
+            bounds = item.bounds,
+            width = bounds.width(),
+            height = bounds.height();
+      let x = bounds.x1 + origin[0] + rect.left,
+          y = bounds.y1 + origin[1] + rect.top; // translate coordinate for each parent group
+
+      while (item.mark && (item = item.mark.group)) {
+        x += item.x || 0;
+        y += item.y || 0;
+      } // return DOMRect-compatible bounding box
+
+
+      return {
+        x,
+        y,
+        width,
+        height,
+        left: x,
+        top: y,
+        right: x + width,
+        bottom: y + height
+      };
     }
-  };
 
-  /**
-   * Returns the size of a scenegraph item and its position relative
-   * to the viewport.
-   * @param {Item} item - The scenegraph item.
-   * @return {object} - A bounding box object (compatible with the
-   *   DOMRect type) consisting of x, y, width, heigh, top, left,
-   *   right, and bottom properties.
-   */
-  prototype$3.getItemBoundingClientRect = function(item) {
-    if (!(el = this.canvas())) return;
-
-    var el, rect = el.getBoundingClientRect(),
-        origin = this._origin,
-        itemBounds = item.bounds,
-        x = itemBounds.x1 + origin[0] + rect.left,
-        y = itemBounds.y1 + origin[1] + rect.top,
-        w = itemBounds.width(),
-        h = itemBounds.height();
-
-    // translate coordinate for each parent group
-    while (item.mark && (item = item.mark.group)) {
-      x += item.x || 0;
-      y += item.y || 0;
-    }
-
-    // return DOMRect-compatible bounding box
-    return {
-      x:      x,
-      y:      y,
-      width:  w,
-      height: h,
-      left:   x,
-      top:    y,
-      right:  x + w,
-      bottom: y + h
-    };
   };
 
   /**
@@ -2737,258 +3173,232 @@
    *   standard loader instance will be generated.
    * @constructor
    */
+
   function Renderer(loader) {
     this._el = null;
     this._bgcolor = null;
     this._loader = new ResourceLoader(loader);
   }
+  Renderer.prototype = {
+    /**
+     * Initialize a new Renderer instance.
+     * @param {DOMElement} el - The containing DOM element for the display.
+     * @param {number} width - The coordinate width of the display, in pixels.
+     * @param {number} height - The coordinate height of the display, in pixels.
+     * @param {Array<number>} origin - The origin of the display, in pixels.
+     *   The coordinate system will be translated to this point.
+     * @param {number} [scaleFactor=1] - Optional scaleFactor by which to multiply
+     *   the width and height to determine the final pixel size.
+     * @return {Renderer} - This renderer instance.
+     */
+    initialize(el, width, height, origin, scaleFactor) {
+      this._el = el;
+      return this.resize(width, height, origin, scaleFactor);
+    },
 
-  var prototype$4 = Renderer.prototype;
+    /**
+     * Returns the parent container element for a visualization.
+     * @return {DOMElement} - The containing DOM element.
+     */
+    element() {
+      return this._el;
+    },
 
-  /**
-   * Initialize a new Renderer instance.
-   * @param {DOMElement} el - The containing DOM element for the display.
-   * @param {number} width - The coordinate width of the display, in pixels.
-   * @param {number} height - The coordinate height of the display, in pixels.
-   * @param {Array<number>} origin - The origin of the display, in pixels.
-   *   The coordinate system will be translated to this point.
-   * @param {number} [scaleFactor=1] - Optional scaleFactor by which to multiply
-   *   the width and height to determine the final pixel size.
-   * @return {Renderer} - This renderer instance.
-   */
-  prototype$4.initialize = function(el, width, height, origin, scaleFactor) {
-    this._el = el;
-    return this.resize(width, height, origin, scaleFactor);
-  };
+    /**
+     * Returns the scene element (e.g., canvas or SVG) of the visualization
+     * Subclasses must override if the first child is not the scene element.
+     * @return {DOMElement} - The scene (e.g., canvas or SVG) element.
+     */
+    canvas() {
+      return this._el && this._el.firstChild;
+    },
 
-  /**
-   * Returns the parent container element for a visualization.
-   * @return {DOMElement} - The containing DOM element.
-   */
-  prototype$4.element = function() {
-    return this._el;
-  };
+    /**
+     * Get / set the background color.
+     */
+    background(bgcolor) {
+      if (arguments.length === 0) return this._bgcolor;
+      this._bgcolor = bgcolor;
+      return this;
+    },
 
-  /**
-   * Returns the scene element (e.g., canvas or SVG) of the visualization
-   * Subclasses must override if the first child is not the scene element.
-   * @return {DOMElement} - The scene (e.g., canvas or SVG) element.
-   */
-  prototype$4.canvas = function() {
-    return this._el && this._el.firstChild;
-  };
+    /**
+     * Resize the display.
+     * @param {number} width - The new coordinate width of the display, in pixels.
+     * @param {number} height - The new coordinate height of the display, in pixels.
+     * @param {Array<number>} origin - The new origin of the display, in pixels.
+     *   The coordinate system will be translated to this point.
+     * @param {number} [scaleFactor=1] - Optional scaleFactor by which to multiply
+     *   the width and height to determine the final pixel size.
+     * @return {Renderer} - This renderer instance;
+     */
+    resize(width, height, origin, scaleFactor) {
+      this._width = width;
+      this._height = height;
+      this._origin = origin || [0, 0];
+      this._scale = scaleFactor || 1;
+      return this;
+    },
 
-  /**
-   * Get / set the background color.
-   */
-  prototype$4.background = function(bgcolor) {
-    if (arguments.length === 0) return this._bgcolor;
-    this._bgcolor = bgcolor;
-    return this;
-  };
+    /**
+     * Report a dirty item whose bounds should be redrawn.
+     * This base class method does nothing. Subclasses that perform
+     * incremental should implement this method.
+     * @param {Item} item - The dirty item whose bounds should be redrawn.
+     */
+    dirty()
+    /*item*/
+    {},
 
-  /**
-   * Resize the display.
-   * @param {number} width - The new coordinate width of the display, in pixels.
-   * @param {number} height - The new coordinate height of the display, in pixels.
-   * @param {Array<number>} origin - The new origin of the display, in pixels.
-   *   The coordinate system will be translated to this point.
-   * @param {number} [scaleFactor=1] - Optional scaleFactor by which to multiply
-   *   the width and height to determine the final pixel size.
-   * @return {Renderer} - This renderer instance;
-   */
-  prototype$4.resize = function(width, height, origin, scaleFactor) {
-    this._width = width;
-    this._height = height;
-    this._origin = origin || [0, 0];
-    this._scale = scaleFactor || 1;
-    return this;
-  };
+    /**
+     * Render an input scenegraph, potentially with a set of dirty items.
+     * This method will perform an immediate rendering with available resources.
+     * The renderer may also need to perform image loading to perform a complete
+     * render. This process can lead to asynchronous re-rendering of the scene
+     * after this method returns. To receive notification when rendering is
+     * complete, use the renderAsync method instead.
+     * @param {object} scene - The root mark of a scenegraph to render.
+     * @return {Renderer} - This renderer instance.
+     */
+    render(scene) {
+      const r = this; // bind arguments into a render call, and cache it
+      // this function may be subsequently called for async redraw
 
-  /**
-   * Report a dirty item whose bounds should be redrawn.
-   * This base class method does nothing. Subclasses that perform
-   * incremental should implement this method.
-   * @param {Item} item - The dirty item whose bounds should be redrawn.
-   */
-  prototype$4.dirty = function(/*item*/) {
-  };
+      r._call = function () {
+        r._render(scene);
+      }; // invoke the renderer
 
-  /**
-   * Render an input scenegraph, potentially with a set of dirty items.
-   * This method will perform an immediate rendering with available resources.
-   * The renderer may also need to perform image loading to perform a complete
-   * render. This process can lead to asynchronous re-rendering of the scene
-   * after this method returns. To receive notification when rendering is
-   * complete, use the renderAsync method instead.
-   * @param {object} scene - The root mark of a scenegraph to render.
-   * @return {Renderer} - This renderer instance.
-   */
-  prototype$4.render = function(scene) {
-    var r = this;
 
-    // bind arguments into a render call, and cache it
-    // this function may be subsequently called for async redraw
-    r._call = function() { r._render(scene); };
+      r._call(); // clear the cached call for garbage collection
+      // async redraws will stash their own copy
 
-    // invoke the renderer
-    r._call();
 
-    // clear the cached call for garbage collection
-    // async redraws will stash their own copy
-    r._call = null;
+      r._call = null;
+      return r;
+    },
 
-    return r;
-  };
+    /**
+     * Internal rendering method. Renderer subclasses should override this
+     * method to actually perform rendering.
+     * @param {object} scene - The root mark of a scenegraph to render.
+     */
+    _render()
+    /*scene*/
+    {// subclasses to override
+    },
 
-  /**
-   * Internal rendering method. Renderer subclasses should override this
-   * method to actually perform rendering.
-   * @param {object} scene - The root mark of a scenegraph to render.
-   */
-  prototype$4._render = function(/*scene*/) {
-    // subclasses to override
-  };
+    /**
+     * Asynchronous rendering method. Similar to render, but returns a Promise
+     * that resolves when all rendering is completed. Sometimes a renderer must
+     * perform image loading to get a complete rendering. The returned
+     * Promise will not resolve until this process completes.
+     * @param {object} scene - The root mark of a scenegraph to render.
+     * @return {Promise} - A Promise that resolves when rendering is complete.
+     */
+    renderAsync(scene) {
+      const r = this.render(scene);
+      return this._ready ? this._ready.then(() => r) : Promise.resolve(r);
+    },
 
-  /**
-   * Asynchronous rendering method. Similar to render, but returns a Promise
-   * that resolves when all rendering is completed. Sometimes a renderer must
-   * perform image loading to get a complete rendering. The returned
-   * Promise will not resolve until this process completes.
-   * @param {object} scene - The root mark of a scenegraph to render.
-   * @return {Promise} - A Promise that resolves when rendering is complete.
-   */
-  prototype$4.renderAsync = function(scene) {
-    var r = this.render(scene);
-    return this._ready
-      ? this._ready.then(function() { return r; })
-      : Promise.resolve(r);
-  };
+    /**
+     * Internal method for asynchronous resource loading.
+     * Proxies method calls to the ImageLoader, and tracks loading
+     * progress to invoke a re-render once complete.
+     * @param {string} method - The method name to invoke on the ImageLoader.
+     * @param {string} uri - The URI for the requested resource.
+     * @return {Promise} - A Promise that resolves to the requested resource.
+     */
+    _load(method, uri) {
+      var r = this,
+          p = r._loader[method](uri);
 
-  /**
-   * Internal method for asynchronous resource loading.
-   * Proxies method calls to the ImageLoader, and tracks loading
-   * progress to invoke a re-render once complete.
-   * @param {string} method - The method name to invoke on the ImageLoader.
-   * @param {string} uri - The URI for the requested resource.
-   * @return {Promise} - A Promise that resolves to the requested resource.
-   */
-  prototype$4._load = function(method, uri) {
-    var r = this,
-        p = r._loader[method](uri);
-
-    if (!r._ready) {
-      // re-render the scene when loading completes
-      var call = r._call;
-      r._ready = r._loader.ready()
-        .then(function(redraw) {
+      if (!r._ready) {
+        // re-render the scene when loading completes
+        const call = r._call;
+        r._ready = r._loader.ready().then(redraw => {
           if (redraw) call();
           r._ready = null;
         });
+      }
+
+      return p;
+    },
+
+    /**
+     * Sanitize a URL to include as a hyperlink in the rendered scene.
+     * This method proxies a call to ImageLoader.sanitizeURL, but also tracks
+     * image loading progress and invokes a re-render once complete.
+     * @param {string} uri - The URI string to sanitize.
+     * @return {Promise} - A Promise that resolves to the sanitized URL.
+     */
+    sanitizeURL(uri) {
+      return this._load('sanitizeURL', uri);
+    },
+
+    /**
+     * Requests an image to include in the rendered scene.
+     * This method proxies a call to ImageLoader.loadImage, but also tracks
+     * image loading progress and invokes a re-render once complete.
+     * @param {string} uri - The URI string of the image.
+     * @return {Promise} - A Promise that resolves to the loaded Image.
+     */
+    loadImage(uri) {
+      return this._load('loadImage', uri);
     }
 
-    return p;
   };
 
-  /**
-   * Sanitize a URL to include as a hyperlink in the rendered scene.
-   * This method proxies a call to ImageLoader.sanitizeURL, but also tracks
-   * image loading progress and invokes a re-render once complete.
-   * @param {string} uri - The URI string to sanitize.
-   * @return {Promise} - A Promise that resolves to the sanitized URL.
-   */
-  prototype$4.sanitizeURL = function(uri) {
-    return this._load('sanitizeURL', uri);
-  };
-
-  /**
-   * Requests an image to include in the rendered scene.
-   * This method proxies a call to ImageLoader.loadImage, but also tracks
-   * image loading progress and invokes a re-render once complete.
-   * @param {string} uri - The URI string of the image.
-   * @return {Promise} - A Promise that resolves to the loaded Image.
-   */
-  prototype$4.loadImage = function(uri) {
-    return this._load('loadImage', uri);
-  };
-
-  var Events = [
-    'keydown',
-    'keypress',
-    'keyup',
-    'dragenter',
-    'dragleave',
-    'dragover',
-    'mousedown',
-    'mouseup',
-    'mousemove',
-    'mouseout',
-    'mouseover',
-    'click',
-    'dblclick',
-    'wheel',
-    'mousewheel',
-    'touchstart',
-    'touchmove',
-    'touchend'
-  ];
-
-  var TooltipShowEvent = 'mousemove';
-
-  var TooltipHideEvent = 'mouseout';
-
-  var HrefEvent = 'click';
+  const KeyDownEvent = 'keydown';
+  const KeyPressEvent = 'keypress';
+  const KeyUpEvent = 'keyup';
+  const DragEnterEvent = 'dragenter';
+  const DragLeaveEvent = 'dragleave';
+  const DragOverEvent = 'dragover';
+  const MouseDownEvent = 'mousedown';
+  const MouseUpEvent = 'mouseup';
+  const MouseMoveEvent = 'mousemove';
+  const MouseOutEvent = 'mouseout';
+  const MouseOverEvent = 'mouseover';
+  const ClickEvent = 'click';
+  const DoubleClickEvent = 'dblclick';
+  const WheelEvent = 'wheel';
+  const MouseWheelEvent = 'mousewheel';
+  const TouchStartEvent = 'touchstart';
+  const TouchMoveEvent = 'touchmove';
+  const TouchEndEvent = 'touchend';
+  const Events = [KeyDownEvent, KeyPressEvent, KeyUpEvent, DragEnterEvent, DragLeaveEvent, DragOverEvent, MouseDownEvent, MouseUpEvent, MouseMoveEvent, MouseOutEvent, MouseOverEvent, ClickEvent, DoubleClickEvent, WheelEvent, MouseWheelEvent, TouchStartEvent, TouchMoveEvent, TouchEndEvent];
+  const TooltipShowEvent = MouseMoveEvent;
+  const TooltipHideEvent = MouseOutEvent;
+  const HrefEvent = ClickEvent;
 
   function CanvasHandler(loader, tooltip) {
     Handler.call(this, loader, tooltip);
     this._down = null;
     this._touch = null;
     this._first = true;
+    this._events = {};
   }
 
-  var prototype$5 = vegaUtil.inherits(CanvasHandler, Handler);
+  const eventBundle = type => type === TouchStartEvent || type === TouchMoveEvent || type === TouchEndEvent ? [TouchStartEvent, TouchMoveEvent, TouchEndEvent] : [type]; // lazily add listeners to the canvas as needed
 
-  prototype$5.initialize = function(el, origin, obj) {
-    // add event listeners
-    var canvas = this._canvas = el && domFind(el, 'canvas');
-    if (canvas) {
-      var that = this;
-      this.events.forEach(function(type) {
-        canvas.addEventListener(type, function(evt) {
-          if (prototype$5[type]) {
-            prototype$5[type].call(that, evt);
-          } else {
-            that.fire(type, evt);
-          }
-        });
-      });
+
+  function eventListenerCheck(handler, type) {
+    eventBundle(type).forEach(_ => addEventListener(handler, _));
+  }
+
+  function addEventListener(handler, type) {
+    const canvas = handler.canvas();
+
+    if (canvas && !handler._events[type]) {
+      handler._events[type] = 1;
+      canvas.addEventListener(type, handler[type] ? evt => handler[type](evt) : evt => handler.fire(type, evt));
     }
-
-    return Handler.prototype.initialize.call(this, el, origin, obj);
-  };
-
-  // return the backing canvas instance
-  prototype$5.canvas = function() {
-    return this._canvas;
-  };
-
-  // retrieve the current canvas context
-  prototype$5.context = function() {
-    return this._canvas.getContext('2d');
-  };
-
-  // supported events
-  prototype$5.events = Events;
-
-  // to keep old versions of firefox happy
-  prototype$5.DOMMouseScroll = function(evt) {
-    this.fire('mousewheel', evt);
-  };
+  }
 
   function move(moveEvent, overEvent, outEvent) {
-    return function(evt) {
-      var a = this._active,
-          p = this.pickEvent(evt);
+    return function (evt) {
+      const a = this._active,
+            p = this.pickEvent(evt);
 
       if (p === a) {
         // active item and picked item are the same
@@ -3000,157 +3410,169 @@
           // suppress if active item was removed from scene
           this.fire(outEvent, evt);
         }
-        this._active = p;          // set new active item
+
+        this._active = p; // set new active item
+
         this.fire(overEvent, evt); // fire over for new active item
+
         this.fire(moveEvent, evt); // fire move for new active item
       }
     };
   }
 
   function inactive(type) {
-    return function(evt) {
+    return function (evt) {
       this.fire(type, evt);
       this._active = null;
     };
   }
 
-  prototype$5.mousemove = move('mousemove', 'mouseover', 'mouseout');
-  prototype$5.dragover  = move('dragover', 'dragenter', 'dragleave');
+  vegaUtil.inherits(CanvasHandler, Handler, {
+    initialize(el, origin, obj) {
+      this._canvas = el && domFind(el, 'canvas'); // add minimal events required for proper state management
 
-  prototype$5.mouseout  = inactive('mouseout');
-  prototype$5.dragleave = inactive('dragleave');
+      [ClickEvent, MouseDownEvent, MouseMoveEvent, MouseOutEvent, DragLeaveEvent].forEach(type => eventListenerCheck(this, type));
+      return Handler.prototype.initialize.call(this, el, origin, obj);
+    },
 
-  prototype$5.mousedown = function(evt) {
-    this._down = this._active;
-    this.fire('mousedown', evt);
-  };
+    // return the backing canvas instance
+    canvas() {
+      return this._canvas;
+    },
 
-  prototype$5.click = function(evt) {
-    if (this._down === this._active) {
-      this.fire('click', evt);
-      this._down = null;
-    }
-  };
+    // retrieve the current canvas context
+    context() {
+      return this._canvas.getContext('2d');
+    },
 
-  prototype$5.touchstart = function(evt) {
-    this._touch = this.pickEvent(evt.changedTouches[0]);
+    // supported events
+    events: Events,
 
-    if (this._first) {
-      this._active = this._touch;
-      this._first = false;
-    }
+    // to keep old versions of firefox happy
+    DOMMouseScroll(evt) {
+      this.fire(MouseWheelEvent, evt);
+    },
 
-    this.fire('touchstart', evt, true);
-  };
+    mousemove: move(MouseMoveEvent, MouseOverEvent, MouseOutEvent),
+    dragover: move(DragOverEvent, DragEnterEvent, DragLeaveEvent),
+    mouseout: inactive(MouseOutEvent),
+    dragleave: inactive(DragLeaveEvent),
 
-  prototype$5.touchmove = function(evt) {
-    this.fire('touchmove', evt, true);
-  };
+    mousedown(evt) {
+      this._down = this._active;
+      this.fire(MouseDownEvent, evt);
+    },
 
-  prototype$5.touchend = function(evt) {
-    this.fire('touchend', evt, true);
-    this._touch = null;
-  };
-
-  // fire an event
-  prototype$5.fire = function(type, evt, touch) {
-    var a = touch ? this._touch : this._active,
-        h = this._handlers[type], i, len;
-
-    // set event type relative to scenegraph items
-    evt.vegaType = type;
-
-    // handle hyperlinks and tooltips first
-    if (type === HrefEvent && a && a.href) {
-      this.handleHref(evt, a, a.href);
-    } else if (type === TooltipShowEvent || type === TooltipHideEvent) {
-      this.handleTooltip(evt, a, type !== TooltipHideEvent);
-    }
-
-    // invoke all registered handlers
-    if (h) {
-      for (i=0, len=h.length; i<len; ++i) {
-        h[i].handler.call(this._obj, evt, a);
+    click(evt) {
+      if (this._down === this._active) {
+        this.fire(ClickEvent, evt);
+        this._down = null;
       }
+    },
+
+    touchstart(evt) {
+      this._touch = this.pickEvent(evt.changedTouches[0]);
+
+      if (this._first) {
+        this._active = this._touch;
+        this._first = false;
+      }
+
+      this.fire(TouchStartEvent, evt, true);
+    },
+
+    touchmove(evt) {
+      this.fire(TouchMoveEvent, evt, true);
+    },
+
+    touchend(evt) {
+      this.fire(TouchEndEvent, evt, true);
+      this._touch = null;
+    },
+
+    // fire an event
+    fire(type, evt, touch) {
+      const a = touch ? this._touch : this._active,
+            h = this._handlers[type]; // set event type relative to scenegraph items
+
+      evt.vegaType = type; // handle hyperlinks and tooltips first
+
+      if (type === HrefEvent && a && a.href) {
+        this.handleHref(evt, a, a.href);
+      } else if (type === TooltipShowEvent || type === TooltipHideEvent) {
+        this.handleTooltip(evt, a, type !== TooltipHideEvent);
+      } // invoke all registered handlers
+
+
+      if (h) {
+        for (let i = 0, len = h.length; i < len; ++i) {
+          h[i].handler.call(this._obj, evt, a);
+        }
+      }
+    },
+
+    // add an event handler
+    on(type, handler) {
+      const name = this.eventName(type),
+            h = this._handlers,
+            i = this._handlerIndex(h[name], type, handler);
+
+      if (i < 0) {
+        eventListenerCheck(this, type);
+        (h[name] || (h[name] = [])).push({
+          type: type,
+          handler: handler
+        });
+      }
+
+      return this;
+    },
+
+    // remove an event handler
+    off(type, handler) {
+      const name = this.eventName(type),
+            h = this._handlers[name],
+            i = this._handlerIndex(h, type, handler);
+
+      if (i >= 0) {
+        h.splice(i, 1);
+      }
+
+      return this;
+    },
+
+    pickEvent(evt) {
+      const p = point(evt, this._canvas),
+            o = this._origin;
+      return this.pick(this._scene, p[0], p[1], p[0] - o[0], p[1] - o[1]);
+    },
+
+    // find the scenegraph item at the current mouse position
+    // x, y -- the absolute x, y mouse coordinates on the canvas element
+    // gx, gy -- the relative coordinates within the current group
+    pick(scene, x, y, gx, gy) {
+      const g = this.context(),
+            mark = Marks[scene.marktype];
+      return mark.pick.call(this, g, scene, x, y, gx, gy);
     }
-  };
 
-  // add an event handler
-  prototype$5.on = function(type, handler) {
-    var name = this.eventName(type),
-        h = this._handlers,
-        i = this._handlerIndex(h[name], type, handler);
-
-    if (i < 0) {
-      (h[name] || (h[name] = [])).push({
-        type:    type,
-        handler: handler
-      });
-    }
-
-    return this;
-  };
-
-  // remove an event handler
-  prototype$5.off = function(type, handler) {
-    var name = this.eventName(type),
-        h = this._handlers[name],
-        i = this._handlerIndex(h, type, handler);
-
-    if (i >= 0) {
-      h.splice(i, 1);
-    }
-
-    return this;
-  };
-
-  prototype$5.pickEvent = function(evt) {
-    var p = point(evt, this._canvas),
-        o = this._origin;
-    return this.pick(this._scene, p[0], p[1], p[0] - o[0], p[1] - o[1]);
-  };
-
-  // find the scenegraph item at the current mouse position
-  // x, y -- the absolute x, y mouse coordinates on the canvas element
-  // gx, gy -- the relative coordinates within the current group
-  prototype$5.pick = function(scene, x, y, gx, gy) {
-    var g = this.context(),
-        mark = marks[scene.marktype];
-    return mark.pick.call(this, g, scene, x, y, gx, gy);
-  };
-
-  function clip$1(context, scene) {
-    var clip = scene.clip;
-
-    context.save();
-    context.beginPath();
-
-    if (vegaUtil.isFunction(clip)) {
-      clip(context);
-    } else {
-      var group = scene.group;
-      context.rect(0, 0, group.width || 0, group.height || 0);
-    }
-
-    context.clip();
-  }
+  });
 
   function devicePixelRatio() {
     return typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
   }
 
   var pixelRatio = devicePixelRatio();
-
-  function resize(canvas, width, height, origin, scaleFactor) {
-    var inDOM = typeof HTMLElement !== 'undefined'
-      && canvas instanceof HTMLElement
-      && canvas.parentNode != null;
-
-    var context = canvas.getContext('2d'),
-        ratio = inDOM ? pixelRatio : scaleFactor;
-
+  function resize (canvas, width, height, origin, scaleFactor, opt) {
+    const inDOM = typeof HTMLElement !== 'undefined' && canvas instanceof HTMLElement && canvas.parentNode != null,
+          context = canvas.getContext('2d'),
+          ratio = inDOM ? pixelRatio : scaleFactor;
     canvas.width = width * ratio;
     canvas.height = height * ratio;
+
+    for (const key in opt) {
+      context[key] = opt[key];
+    }
 
     if (inDOM && ratio !== 1) {
       canvas.style.width = width + 'px';
@@ -3158,651 +3580,1084 @@
     }
 
     context.pixelRatio = ratio;
-    context.setTransform(
-      ratio, 0, 0, ratio,
-      ratio * origin[0],
-      ratio * origin[1]
-    );
-
+    context.setTransform(ratio, 0, 0, ratio, ratio * origin[0], ratio * origin[1]);
     return canvas;
   }
 
   function CanvasRenderer(loader) {
     Renderer.call(this, loader);
+    this._options = {};
     this._redraw = false;
     this._dirty = new Bounds();
+    this._tempb = new Bounds();
   }
+  const base$1 = Renderer.prototype;
 
-  var prototype$6 = vegaUtil.inherits(CanvasRenderer, Renderer),
-      base = Renderer.prototype,
-      tempBounds$1 = new Bounds();
-
-  prototype$6.initialize = function(el, width, height, origin, scaleFactor) {
-    this._canvas = vegaCanvas.canvas(1, 1); // instantiate a small canvas
-    if (el) {
-      domClear(el, 0).appendChild(this._canvas);
-      this._canvas.setAttribute('class', 'marks');
-    }
-    // this method will invoke resize to size the canvas appropriately
-    return base.initialize.call(this, el, width, height, origin, scaleFactor);
-  };
-
-  prototype$6.resize = function(width, height, origin, scaleFactor) {
-    base.resize.call(this, width, height, origin, scaleFactor);
-    resize(this._canvas, this._width, this._height, this._origin, this._scale);
-    this._redraw = true;
-    return this;
-  };
-
-  prototype$6.canvas = function() {
-    return this._canvas;
-  };
-
-  prototype$6.context = function() {
-    return this._canvas ? this._canvas.getContext('2d') : null;
-  };
-
-  prototype$6.dirty = function(item) {
-    var b = translate$1(item.bounds, item.mark.group);
-    this._dirty.union(b);
-  };
+  const viewBounds = (origin, width, height) => new Bounds().set(0, 0, width, height).translate(-origin[0], -origin[1]);
 
   function clipToBounds(g, b, origin) {
     // expand bounds by 1 pixel, then round to pixel boundaries
-    b.expand(1).round();
+    b.expand(1).round(); // align to base pixel grid in case of non-integer scaling (#2425)
 
-    // to avoid artifacts translate if origin has fractional pixels
-    b.translate(-(origin[0] % 1), -(origin[1] % 1));
+    if (g.pixelRatio % 1) {
+      b.scale(g.pixelRatio).round().scale(1 / g.pixelRatio);
+    } // to avoid artifacts translate if origin has fractional pixels
 
-    // set clipping path
+
+    b.translate(-(origin[0] % 1), -(origin[1] % 1)); // set clip path
+
     g.beginPath();
     g.rect(b.x1, b.y1, b.width(), b.height());
     g.clip();
-
     return b;
   }
 
-  function translate$1(bounds, group) {
-    if (group == null) return bounds;
-    var b = tempBounds$1.clear().union(bounds);
-    for (; group != null; group = group.mark.group) {
-      b.translate(group.x || 0, group.y || 0);
+  vegaUtil.inherits(CanvasRenderer, Renderer, {
+    initialize(el, width, height, origin, scaleFactor, options) {
+      this._options = options || {};
+      this._canvas = this._options.externalContext ? null : vegaCanvas.canvas(1, 1, this._options.type); // instantiate a small canvas
+
+      if (el && this._canvas) {
+        domClear(el, 0).appendChild(this._canvas);
+
+        this._canvas.setAttribute('class', 'marks');
+      } // this method will invoke resize to size the canvas appropriately
+
+
+      return base$1.initialize.call(this, el, width, height, origin, scaleFactor);
+    },
+
+    resize(width, height, origin, scaleFactor) {
+      base$1.resize.call(this, width, height, origin, scaleFactor);
+
+      if (this._canvas) {
+        // configure canvas size and transform
+        resize(this._canvas, this._width, this._height, this._origin, this._scale, this._options.context);
+      } else {
+        // external context needs to be scaled and positioned to origin
+        const ctx = this._options.externalContext;
+        if (!ctx) vegaUtil.error('CanvasRenderer is missing a valid canvas or context');
+        ctx.scale(this._scale, this._scale);
+        ctx.translate(this._origin[0], this._origin[1]);
+      }
+
+      this._redraw = true;
+      return this;
+    },
+
+    canvas() {
+      return this._canvas;
+    },
+
+    context() {
+      return this._options.externalContext || (this._canvas ? this._canvas.getContext('2d') : null);
+    },
+
+    dirty(item) {
+      const b = this._tempb.clear().union(item.bounds);
+
+      let g = item.mark.group;
+
+      while (g) {
+        b.translate(g.x || 0, g.y || 0);
+        g = g.mark.group;
+      }
+
+      this._dirty.union(b);
+    },
+
+    _render(scene) {
+      const g = this.context(),
+            o = this._origin,
+            w = this._width,
+            h = this._height,
+            db = this._dirty,
+            vb = viewBounds(o, w, h); // setup
+
+      g.save();
+      const b = this._redraw || db.empty() ? (this._redraw = false, vb.expand(1)) : clipToBounds(g, vb.intersect(db), o);
+      this.clear(-o[0], -o[1], w, h); // render
+
+      this.draw(g, scene, b); // takedown
+
+      g.restore();
+      db.clear();
+      return this;
+    },
+
+    draw(ctx, scene, bounds) {
+      const mark = Marks[scene.marktype];
+      if (scene.clip) clip(ctx, scene);
+      mark.draw.call(this, ctx, scene, bounds);
+      if (scene.clip) ctx.restore();
+    },
+
+    clear(x, y, w, h) {
+      const opt = this._options,
+            g = this.context();
+
+      if (opt.type !== 'pdf' && !opt.externalContext) {
+        // calling clear rect voids vector output in pdf mode
+        // and could remove external context content (#2615)
+        g.clearRect(x, y, w, h);
+      }
+
+      if (this._bgcolor != null) {
+        g.fillStyle = this._bgcolor;
+        g.fillRect(x, y, w, h);
+      }
     }
-    return b;
-  }
 
-  prototype$6._render = function(scene) {
-    var g = this.context(),
-        o = this._origin,
-        w = this._width,
-        h = this._height,
-        b = this._dirty;
-
-    // setup
-    g.save();
-    if (this._redraw || b.empty()) {
-      this._redraw = false;
-      b = null;
-    } else {
-      b = clipToBounds(g, b, o);
-    }
-
-    this.clear(-o[0], -o[1], w, h);
-
-    // render
-    this.draw(g, scene, b);
-
-    // takedown
-    g.restore();
-
-    this._dirty.clear();
-    return this;
-  };
-
-  prototype$6.draw = function(ctx, scene, bounds) {
-    var mark = marks[scene.marktype];
-    if (scene.clip) clip$1(ctx, scene);
-    mark.draw.call(this, ctx, scene, bounds);
-    if (scene.clip) ctx.restore();
-  };
-
-  prototype$6.clear = function(x, y, w, h) {
-    var g = this.context();
-    g.clearRect(x, y, w, h);
-    if (this._bgcolor != null) {
-      g.fillStyle = this._bgcolor;
-      g.fillRect(x, y, w, h);
-    }
-  };
+  });
 
   function SVGHandler(loader, tooltip) {
     Handler.call(this, loader, tooltip);
-    var h = this;
-    h._hrefHandler = listener(h, function(evt, item) {
+    const h = this;
+    h._hrefHandler = listener(h, (evt, item) => {
       if (item && item.href) h.handleHref(evt, item, item.href);
     });
-    h._tooltipHandler = listener(h, function(evt, item) {
+    h._tooltipHandler = listener(h, (evt, item) => {
       h.handleTooltip(evt, item, evt.type !== TooltipHideEvent);
     });
-  }
+  } // wrap an event listener for the SVG DOM
 
-  var prototype$7 = vegaUtil.inherits(SVGHandler, Handler);
-
-  prototype$7.initialize = function(el, origin, obj) {
-    var svg = this._svg;
-    if (svg) {
-      svg.removeEventListener(HrefEvent, this._hrefHandler);
-      svg.removeEventListener(TooltipShowEvent, this._tooltipHandler);
-      svg.removeEventListener(TooltipHideEvent, this._tooltipHandler);
-    }
-    this._svg = svg = el && domFind(el, 'svg');
-    if (svg) {
-      svg.addEventListener(HrefEvent, this._hrefHandler);
-      svg.addEventListener(TooltipShowEvent, this._tooltipHandler);
-      svg.addEventListener(TooltipHideEvent, this._tooltipHandler);
-    }
-    return Handler.prototype.initialize.call(this, el, origin, obj);
+  const listener = (context, handler) => evt => {
+    let item = evt.target.__data__;
+    item = Array.isArray(item) ? item[0] : item;
+    evt.vegaType = evt.type;
+    handler.call(context._obj, evt, item);
   };
 
-  prototype$7.canvas = function() {
-    return this._svg;
-  };
+  vegaUtil.inherits(SVGHandler, Handler, {
+    initialize(el, origin, obj) {
+      let svg = this._svg;
 
-  // wrap an event listener for the SVG DOM
-  function listener(context, handler) {
-    return function(evt) {
-      var target = evt.target,
-          item = target.__data__;
-      evt.vegaType = evt.type;
-      item = Array.isArray(item) ? item[0] : item;
-      handler.call(context._obj, evt, item);
-    };
-  }
-
-  // add an event handler
-  prototype$7.on = function(type, handler) {
-    var name = this.eventName(type),
-        h = this._handlers,
-        i = this._handlerIndex(h[name], type, handler);
-
-    if (i < 0) {
-      var x = {
-        type:     type,
-        handler:  handler,
-        listener: listener(this, handler)
-      };
-
-      (h[name] || (h[name] = [])).push(x);
-      if (this._svg) {
-        this._svg.addEventListener(name, x.listener);
+      if (svg) {
+        svg.removeEventListener(HrefEvent, this._hrefHandler);
+        svg.removeEventListener(TooltipShowEvent, this._tooltipHandler);
+        svg.removeEventListener(TooltipHideEvent, this._tooltipHandler);
       }
-    }
 
-    return this;
-  };
+      this._svg = svg = el && domFind(el, 'svg');
 
-  // remove an event handler
-  prototype$7.off = function(type, handler) {
-    var name = this.eventName(type),
-        h = this._handlers[name],
-        i = this._handlerIndex(h, type, handler);
-
-    if (i >= 0) {
-      if (this._svg) {
-        this._svg.removeEventListener(name, h[i].listener);
+      if (svg) {
+        svg.addEventListener(HrefEvent, this._hrefHandler);
+        svg.addEventListener(TooltipShowEvent, this._tooltipHandler);
+        svg.addEventListener(TooltipHideEvent, this._tooltipHandler);
       }
-      h.splice(i, 1);
-    }
 
-    return this;
-  };
+      return Handler.prototype.initialize.call(this, el, origin, obj);
+    },
 
-  // generate string for an opening xml tag
-  // tag: the name of the xml tag
-  // attr: hash of attribute name-value pairs to include
-  // raw: additional raw string to include in tag markup
-  function openTag(tag, attr, raw) {
-    var s = '<' + tag, key, val;
-    if (attr) {
-      for (key in attr) {
-        val = attr[key];
-        if (val != null) {
-          s += ' ' + key + '="' + val + '"';
+    canvas() {
+      return this._svg;
+    },
+
+    // add an event handler
+    on(type, handler) {
+      const name = this.eventName(type),
+            h = this._handlers,
+            i = this._handlerIndex(h[name], type, handler);
+
+      if (i < 0) {
+        const x = {
+          type,
+          handler,
+          listener: listener(this, handler)
+        };
+        (h[name] || (h[name] = [])).push(x);
+
+        if (this._svg) {
+          this._svg.addEventListener(name, x.listener);
         }
       }
+
+      return this;
+    },
+
+    // remove an event handler
+    off(type, handler) {
+      const name = this.eventName(type),
+            h = this._handlers[name],
+            i = this._handlerIndex(h, type, handler);
+
+      if (i >= 0) {
+        if (this._svg) {
+          this._svg.removeEventListener(name, h[i].listener);
+        }
+
+        h.splice(i, 1);
+      }
+
+      return this;
     }
-    if (raw) s += ' ' + raw;
-    return s + '>';
+
+  });
+
+  const ARIA_HIDDEN = 'aria-hidden';
+  const ARIA_LABEL = 'aria-label';
+  const ARIA_ROLE = 'role';
+  const ARIA_ROLEDESCRIPTION = 'aria-roledescription';
+  const GRAPHICS_OBJECT = 'graphics-object';
+  const GRAPHICS_SYMBOL = 'graphics-symbol';
+
+  const bundle = (role, roledesc, label) => ({
+    [ARIA_ROLE]: role,
+    [ARIA_ROLEDESCRIPTION]: roledesc,
+    [ARIA_LABEL]: label || undefined
+  }); // these roles are covered by related roles
+  // we can ignore them, no need to generate attributes
+
+
+  const AriaIgnore = vegaUtil.toSet(['axis-domain', 'axis-grid', 'axis-label', 'axis-tick', 'axis-title', 'legend-band', 'legend-entry', 'legend-gradient', 'legend-label', 'legend-title', 'legend-symbol', 'title']); // aria attribute generators for guide roles
+
+  const AriaGuides = {
+    'axis': {
+      desc: 'axis',
+      caption: axisCaption
+    },
+    'legend': {
+      desc: 'legend',
+      caption: legendCaption
+    },
+    'title-text': {
+      desc: 'title',
+      caption: item => `Title text '${titleCaption(item)}'`
+    },
+    'title-subtitle': {
+      desc: 'subtitle',
+      caption: item => `Subtitle text '${titleCaption(item)}'`
+    }
+  }; // aria properties generated for mark item encoding channels
+
+  const AriaEncode = {
+    ariaRole: ARIA_ROLE,
+    ariaRoleDescription: ARIA_ROLEDESCRIPTION,
+    description: ARIA_LABEL
+  };
+  function ariaItemAttributes(emit, item) {
+    const hide = item.aria === false;
+    emit(ARIA_HIDDEN, hide || undefined);
+
+    if (hide || item.description == null) {
+      for (const prop in AriaEncode) {
+        emit(AriaEncode[prop], undefined);
+      }
+    } else {
+      const type = item.mark.marktype;
+      emit(ARIA_LABEL, item.description);
+      emit(ARIA_ROLE, item.ariaRole || (type === 'group' ? GRAPHICS_OBJECT : GRAPHICS_SYMBOL));
+      emit(ARIA_ROLEDESCRIPTION, item.ariaRoleDescription || `${type} mark`);
+    }
+  }
+  function ariaMarkAttributes(mark) {
+    return mark.aria === false ? {
+      [ARIA_HIDDEN]: true
+    } : AriaIgnore[mark.role] ? null : AriaGuides[mark.role] ? ariaGuide(mark, AriaGuides[mark.role]) : ariaMark(mark);
   }
 
-  // generate string for closing xml tag
-  // tag: the name of the xml tag
-  function closeTag(tag) {
-    return '</' + tag + '>';
+  function ariaMark(mark) {
+    const type = mark.marktype;
+    const recurse = type === 'group' || type === 'text' || mark.items.some(_ => _.description != null && _.aria !== false);
+    return bundle(recurse ? GRAPHICS_OBJECT : GRAPHICS_SYMBOL, `${type} mark container`, mark.description);
   }
 
-  var metadata = {
-    'version': '1.1',
-    'xmlns': 'http://www.w3.org/2000/svg',
-    'xmlns:xlink': 'http://www.w3.org/1999/xlink'
+  function ariaGuide(mark, opt) {
+    try {
+      const item = mark.items[0],
+            caption = opt.caption || (() => '');
+
+      return bundle(opt.role || GRAPHICS_SYMBOL, opt.desc, item.description || caption(item));
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function titleCaption(item) {
+    return vegaUtil.array(item.text).join(' ');
+  }
+
+  function axisCaption(item) {
+    const datum = item.datum,
+          orient = item.orient,
+          title = datum.title ? extractTitle(item) : null,
+          ctx = item.context,
+          scale = ctx.scales[datum.scale].value,
+          locale = ctx.dataflow.locale(),
+          type = scale.type,
+          xy = orient === 'left' || orient === 'right' ? 'Y' : 'X';
+    return `${xy}-axis` + (title ? ` titled '${title}'` : '') + ` for a ${vegaScale.isDiscrete(type) ? 'discrete' : type} scale` + ` with ${vegaScale.domainCaption(locale, scale, item)}`;
+  }
+
+  function legendCaption(item) {
+    const datum = item.datum,
+          title = datum.title ? extractTitle(item) : null,
+          type = `${datum.type || ''} legend`.trim(),
+          scales = datum.scales,
+          props = Object.keys(scales),
+          ctx = item.context,
+          scale = ctx.scales[scales[props[0]]].value,
+          locale = ctx.dataflow.locale();
+    return capitalize(type) + (title ? ` titled '${title}'` : '') + ` for ${channelCaption(props)}` + ` with ${vegaScale.domainCaption(locale, scale, item)}`;
+  }
+
+  function extractTitle(item) {
+    try {
+      return vegaUtil.array(vegaUtil.peek(item.items).items[0].text).join(' ');
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function channelCaption(props) {
+    props = props.map(p => p + (p === 'fill' || p === 'stroke' ? ' color' : ''));
+    return props.length < 2 ? props[0] : props.slice(0, -1).join(', ') + ' and ' + vegaUtil.peek(props);
+  }
+
+  function capitalize(s) {
+    return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+  }
+
+  const innerText = val => (val + '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const attrText = val => innerText(val).replace(/"/g, '&quot;').replace(/\t/g, '&#x9;').replace(/\n/g, '&#xA;').replace(/\r/g, '&#xD;');
+
+  function markup() {
+    let buf = '',
+        outer = '',
+        inner = '';
+
+    const stack = [],
+          clear = () => outer = inner = '',
+          push = tag => {
+      if (outer) {
+        buf += `${outer}>${inner}`;
+        clear();
+      }
+
+      stack.push(tag);
+    },
+          attr = (name, value) => {
+      if (value != null) outer += ` ${name}="${attrText(value)}"`;
+      return m;
+    },
+          m = {
+      open(tag, ...attrs) {
+        push(tag);
+        outer = '<' + tag;
+
+        for (const set of attrs) {
+          for (const key in set) attr(key, set[key]);
+        }
+
+        return m;
+      },
+
+      close() {
+        const tag = stack.pop();
+
+        if (outer) {
+          buf += outer + (inner ? `>${inner}</${tag}>` : '/>');
+        } else {
+          buf += `</${tag}>`;
+        }
+
+        clear();
+        return m;
+      },
+
+      attr,
+      text: t => (inner += innerText(t), m),
+      toString: () => buf
+    };
+
+    return m;
+  }
+  const serializeXML = node => _serialize(markup(), node) + '';
+
+  function _serialize(m, node) {
+    m.open(node.tagName);
+
+    if (node.hasAttributes()) {
+      const attrs = node.attributes,
+            n = attrs.length;
+
+      for (let i = 0; i < n; ++i) {
+        m.attr(attrs[i].name, attrs[i].value);
+      }
+    }
+
+    if (node.hasChildNodes()) {
+      const children = node.childNodes,
+            n = children.length;
+
+      for (let i = 0; i < n; i++) {
+        const child = children[i];
+        child.nodeType === 3 // text node
+        ? m.text(child.nodeValue) : _serialize(m, child);
+      }
+    }
+
+    return m.close();
+  }
+
+  const styles = {
+    fill: 'fill',
+    fillOpacity: 'fill-opacity',
+    stroke: 'stroke',
+    strokeOpacity: 'stroke-opacity',
+    strokeWidth: 'stroke-width',
+    strokeCap: 'stroke-linecap',
+    strokeJoin: 'stroke-linejoin',
+    strokeDash: 'stroke-dasharray',
+    strokeDashOffset: 'stroke-dashoffset',
+    strokeMiterLimit: 'stroke-miterlimit',
+    opacity: 'opacity',
+    blend: 'mix-blend-mode'
+  }; // ensure miter limit default is consistent with canvas (#2498)
+
+  const rootAttributes = {
+    'fill': 'none',
+    'stroke-miterlimit': 10
   };
 
-  var styles = {
-    'fill':             'fill',
-    'fillOpacity':      'fill-opacity',
-    'stroke':           'stroke',
-    'strokeOpacity':    'stroke-opacity',
-    'strokeWidth':      'stroke-width',
-    'strokeCap':        'stroke-linecap',
-    'strokeJoin':       'stroke-linejoin',
-    'strokeDash':       'stroke-dasharray',
-    'strokeDashOffset': 'stroke-dashoffset',
-    'strokeMiterLimit': 'stroke-miterlimit',
-    'opacity':          'opacity'
-  };
-
-  var styleProperties = Object.keys(styles);
-
-  var ns = metadata.xmlns;
-
+  const RootIndex = 0,
+        xmlns = 'http://www.w3.org/2000/xmlns/',
+        svgns = metadata.xmlns;
   function SVGRenderer(loader) {
     Renderer.call(this, loader);
-    this._dirtyID = 1;
+    this._dirtyID = 0;
     this._dirty = [];
     this._svg = null;
     this._root = null;
     this._defs = null;
   }
+  const base = Renderer.prototype;
+  vegaUtil.inherits(SVGRenderer, Renderer, {
+    /**
+     * Initialize a new SVGRenderer instance.
+     * @param {DOMElement} el - The containing DOM element for the display.
+     * @param {number} width - The coordinate width of the display, in pixels.
+     * @param {number} height - The coordinate height of the display, in pixels.
+     * @param {Array<number>} origin - The origin of the display, in pixels.
+     *   The coordinate system will be translated to this point.
+     * @param {number} [scaleFactor=1] - Optional scaleFactor by which to multiply
+     *   the width and height to determine the final pixel size.
+     * @return {SVGRenderer} - This renderer instance.
+     */
+    initialize(el, width, height, origin, scaleFactor) {
+      // create the svg definitions cache
+      this._defs = {};
 
-  var prototype$8 = vegaUtil.inherits(SVGRenderer, Renderer);
-  var base$1 = Renderer.prototype;
+      this._clearDefs();
 
-  prototype$8.initialize = function(el, width, height, padding) {
-    if (el) {
-      this._svg = domChild(el, 0, 'svg', ns);
-      this._svg.setAttribute('class', 'marks');
-      domClear(el, 1);
-      // set the svg root group
-      this._root = domChild(this._svg, 0, 'g', ns);
-      domClear(this._svg, 1);
-    }
+      if (el) {
+        this._svg = domChild(el, 0, 'svg', svgns);
 
-    // create the svg definitions cache
-    this._defs = {
-      gradient: {},
-      clipping: {}
-    };
+        this._svg.setAttributeNS(xmlns, 'xmlns', svgns);
 
-    // set background color if defined
-    this.background(this._bgcolor);
+        this._svg.setAttributeNS(xmlns, 'xmlns:xlink', metadata['xmlns:xlink']);
 
-    return base$1.initialize.call(this, el, width, height, padding);
-  };
+        this._svg.setAttribute('version', metadata['version']);
 
-  prototype$8.background = function(bgcolor) {
-    if (arguments.length && this._svg) {
-      this._svg.style.setProperty('background-color', bgcolor);
-    }
-    return base$1.background.apply(this, arguments);
-  };
+        this._svg.setAttribute('class', 'marks');
 
-  prototype$8.resize = function(width, height, origin, scaleFactor) {
-    base$1.resize.call(this, width, height, origin, scaleFactor);
+        domClear(el, 1); // set the svg root group
 
-    if (this._svg) {
-      this._svg.setAttribute('width', this._width * this._scale);
-      this._svg.setAttribute('height', this._height * this._scale);
-      this._svg.setAttribute('viewBox', '0 0 ' + this._width + ' ' + this._height);
-      this._root.setAttribute('transform', 'translate(' + this._origin + ')');
-    }
+        this._root = domChild(this._svg, RootIndex, 'g', svgns);
+        setAttributes(this._root, rootAttributes); // ensure no additional child elements
 
-    this._dirty = [];
+        domClear(this._svg, RootIndex + 1);
+      } // set background color if defined
 
-    return this;
-  };
 
-  prototype$8.canvas = function() {
-    return this._svg;
-  };
+      this.background(this._bgcolor);
+      return base.initialize.call(this, el, width, height, origin, scaleFactor);
+    },
 
-  prototype$8.svg = function() {
-    if (!this._svg) return null;
+    /**
+     * Get / set the background color.
+     */
+    background(bgcolor) {
+      if (arguments.length && this._svg) {
+        this._svg.style.setProperty('background-color', bgcolor);
+      }
 
-    var attr = {
-      class:   'marks',
-      width:   this._width * this._scale,
-      height:  this._height * this._scale,
-      viewBox: '0 0 ' + this._width + ' ' + this._height
-    };
-    for (var key in metadata) {
-      attr[key] = metadata[key];
-    }
+      return base.background.apply(this, arguments);
+    },
 
-    var bg = !this._bgcolor ? ''
-      : (openTag('rect', {
-          width:  this._width,
+    /**
+     * Resize the display.
+     * @param {number} width - The new coordinate width of the display, in pixels.
+     * @param {number} height - The new coordinate height of the display, in pixels.
+     * @param {Array<number>} origin - The new origin of the display, in pixels.
+     *   The coordinate system will be translated to this point.
+     * @param {number} [scaleFactor=1] - Optional scaleFactor by which to multiply
+     *   the width and height to determine the final pixel size.
+     * @return {SVGRenderer} - This renderer instance;
+     */
+    resize(width, height, origin, scaleFactor) {
+      base.resize.call(this, width, height, origin, scaleFactor);
+
+      if (this._svg) {
+        setAttributes(this._svg, {
+          width: this._width * this._scale,
+          height: this._height * this._scale,
+          viewBox: `0 0 ${this._width} ${this._height}`
+        });
+
+        this._root.setAttribute('transform', `translate(${this._origin})`);
+      }
+
+      this._dirty = [];
+      return this;
+    },
+
+    /**
+     * Returns the SVG element of the visualization.
+     * @return {DOMElement} - The SVG element.
+     */
+    canvas() {
+      return this._svg;
+    },
+
+    /**
+     * Returns an SVG text string for the rendered content,
+     * or null if this renderer is currently headless.
+     */
+    svg() {
+      const svg = this._svg,
+            bg = this._bgcolor;
+      if (!svg) return null;
+      let node;
+
+      if (bg) {
+        svg.removeAttribute('style');
+        node = domChild(svg, RootIndex, 'rect', svgns);
+        setAttributes(node, {
+          width: this._width,
           height: this._height,
-          style:  'fill: ' + this._bgcolor + ';'
-        }) + closeTag('rect'));
-
-    return openTag('svg', attr) + bg + this._svg.innerHTML + closeTag('svg');
-  };
-
-
-  // -- Render entry point --
-
-  prototype$8._render = function(scene) {
-    // perform spot updates and re-render markup
-    if (this._dirtyCheck()) {
-      if (this._dirtyAll) this._resetDefs();
-      this.draw(this._root, scene);
-      domClear(this._root, 1);
-    }
-
-    this.updateDefs();
-
-    this._dirty = [];
-    ++this._dirtyID;
-
-    return this;
-  };
-
-  // -- Manage SVG definitions ('defs') block --
-
-  prototype$8.updateDefs = function() {
-    var svg = this._svg,
-        defs = this._defs,
-        el = defs.el,
-        index = 0, id;
-
-    for (id in defs.gradient) {
-      if (!el) defs.el = (el = domChild(svg, 0, 'defs', ns));
-      updateGradient(el, defs.gradient[id], index++);
-    }
-
-    for (id in defs.clipping) {
-      if (!el) defs.el = (el = domChild(svg, 0, 'defs', ns));
-      updateClipping(el, defs.clipping[id], index++);
-    }
-
-    // clean-up
-    if (el) {
-      if (index === 0) {
-        svg.removeChild(el);
-        defs.el = null;
-      } else {
-        domClear(el, index);
-      }
-    }
-  };
-
-  function updateGradient(el, grad, index) {
-    var i, n, stop;
-
-    el = domChild(el, index, 'linearGradient', ns);
-    el.setAttribute('id', grad.id);
-    el.setAttribute('x1', grad.x1);
-    el.setAttribute('x2', grad.x2);
-    el.setAttribute('y1', grad.y1);
-    el.setAttribute('y2', grad.y2);
-
-    for (i=0, n=grad.stops.length; i<n; ++i) {
-      stop = domChild(el, i, 'stop', ns);
-      stop.setAttribute('offset', grad.stops[i].offset);
-      stop.setAttribute('stop-color', grad.stops[i].color);
-    }
-    domClear(el, i);
-  }
-
-  function updateClipping(el, clip$$1, index) {
-    var mask;
-
-    el = domChild(el, index, 'clipPath', ns);
-    el.setAttribute('id', clip$$1.id);
-
-    if (clip$$1.path) {
-      mask = domChild(el, 0, 'path', ns);
-      mask.setAttribute('d', clip$$1.path);
-    } else {
-      mask = domChild(el, 0, 'rect', ns);
-      mask.setAttribute('x', 0);
-      mask.setAttribute('y', 0);
-      mask.setAttribute('width', clip$$1.width);
-      mask.setAttribute('height', clip$$1.height);
-    }
-  }
-
-  prototype$8._resetDefs = function() {
-    var def = this._defs;
-    def.gradient = {};
-    def.clipping = {};
-  };
-
-
-  // -- Manage rendering of items marked as dirty --
-
-  prototype$8.dirty = function(item) {
-    if (item.dirty !== this._dirtyID) {
-      item.dirty = this._dirtyID;
-      this._dirty.push(item);
-    }
-  };
-
-  prototype$8.isDirty = function(item) {
-    return this._dirtyAll
-      || !item._svg
-      || item.dirty === this._dirtyID;
-  };
-
-  prototype$8._dirtyCheck = function() {
-    this._dirtyAll = true;
-    var items = this._dirty;
-    if (!items.length) return true;
-
-    var id = ++this._dirtyID,
-        item, mark, type, mdef, i, n, o;
-
-    for (i=0, n=items.length; i<n; ++i) {
-      item = items[i];
-      mark = item.mark;
-
-      if (mark.marktype !== type) {
-        // memoize mark instance lookup
-        type = mark.marktype;
-        mdef = marks[type];
+          fill: bg
+        });
       }
 
-      if (mark.zdirty && mark.dirty !== id) {
-        this._dirtyAll = false;
-        dirtyParents(item, id);
-        mark.items.forEach(function(i) { i.dirty = id; });
-      }
-      if (mark.zdirty) continue; // handle in standard drawing pass
+      const text = serializeXML(svg);
 
-      if (item.exit) { // EXIT
-        if (mdef.nested && mark.items.length) {
-          // if nested mark with remaining points, update instead
-          o = mark.items[0];
-          if (o._svg) this._update(mdef, o._svg, o);
-        } else if (item._svg) {
-          // otherwise remove from DOM
-          o = item._svg.parentNode;
-          if (o) o.removeChild(item._svg);
+      if (bg) {
+        svg.removeChild(node);
+
+        this._svg.style.setProperty('background-color', bg);
+      }
+
+      return text;
+    },
+
+    /**
+     * Internal rendering method.
+     * @param {object} scene - The root mark of a scenegraph to render.
+     */
+    _render(scene) {
+      // perform spot updates and re-render markup
+      if (this._dirtyCheck()) {
+        if (this._dirtyAll) this._clearDefs();
+        this.mark(this._root, scene);
+        domClear(this._root, 1);
+      }
+
+      this.defs();
+      this._dirty = [];
+      ++this._dirtyID;
+      return this;
+    },
+
+    // -- Manage rendering of items marked as dirty --
+
+    /**
+     * Flag a mark item as dirty.
+     * @param {Item} item - The mark item.
+     */
+    dirty(item) {
+      if (item.dirty !== this._dirtyID) {
+        item.dirty = this._dirtyID;
+
+        this._dirty.push(item);
+      }
+    },
+
+    /**
+     * Check if a mark item is considered dirty.
+     * @param {Item} item - The mark item.
+     */
+    isDirty(item) {
+      return this._dirtyAll || !item._svg || item.dirty === this._dirtyID;
+    },
+
+    /**
+     * Internal method to check dirty status and, if possible,
+     * make targetted updates without a full rendering pass.
+     */
+    _dirtyCheck() {
+      this._dirtyAll = true;
+      const items = this._dirty;
+      if (!items.length || !this._dirtyID) return true;
+      const id = ++this._dirtyID;
+      let item, mark, type, mdef, i, n, o;
+
+      for (i = 0, n = items.length; i < n; ++i) {
+        item = items[i];
+        mark = item.mark;
+
+        if (mark.marktype !== type) {
+          // memoize mark instance lookup
+          type = mark.marktype;
+          mdef = Marks[type];
         }
-        item._svg = null;
-        continue;
+
+        if (mark.zdirty && mark.dirty !== id) {
+          this._dirtyAll = false;
+          dirtyParents(item, id);
+          mark.items.forEach(i => {
+            i.dirty = id;
+          });
+        }
+
+        if (mark.zdirty) continue; // handle in standard drawing pass
+
+        if (item.exit) {
+          // EXIT
+          if (mdef.nested && mark.items.length) {
+            // if nested mark with remaining points, update instead
+            o = mark.items[0];
+            if (o._svg) this._update(mdef, o._svg, o);
+          } else if (item._svg) {
+            // otherwise remove from DOM
+            o = item._svg.parentNode;
+            if (o) o.removeChild(item._svg);
+          }
+
+          item._svg = null;
+          continue;
+        }
+
+        item = mdef.nested ? mark.items[0] : item;
+        if (item._update === id) continue; // already visited
+
+        if (!item._svg || !item._svg.ownerSVGElement) {
+          // ENTER
+          this._dirtyAll = false;
+          dirtyParents(item, id);
+        } else {
+          // IN-PLACE UPDATE
+          this._update(mdef, item._svg, item);
+        }
+
+        item._update = id;
       }
 
-      item = (mdef.nested ? mark.items[0] : item);
-      if (item._update === id) continue; // already visited
+      return !this._dirtyAll;
+    },
 
-      if (!item._svg || !item._svg.ownerSVGElement) {
-        // ENTER
-        this._dirtyAll = false;
-        dirtyParents(item, id);
+    // -- Construct & maintain scenegraph to SVG mapping ---
+
+    /**
+     * Render a set of mark items.
+     * @param {SVGElement} el - The parent element in the SVG tree.
+     * @param {object} scene - The mark parent to render.
+     * @param {SVGElement} prev - The previous sibling in the SVG tree.
+     */
+    mark(el, scene, prev) {
+      if (!this.isDirty(scene)) return scene._svg;
+      const svg = this._svg,
+            mdef = Marks[scene.marktype],
+            events = scene.interactive === false ? 'none' : null,
+            isGroup = mdef.tag === 'g';
+      let sibling = null,
+          i = 0;
+      const parent = bind(scene, el, prev, 'g', svg);
+      parent.setAttribute('class', cssClass(scene)); // apply aria attributes to parent container element
+
+      const aria = ariaMarkAttributes(scene);
+
+      for (const key in aria) setAttribute(parent, key, aria[key]);
+
+      if (!isGroup) {
+        setAttribute(parent, 'pointer-events', events);
+      }
+
+      setAttribute(parent, 'clip-path', scene.clip ? clip$1(this, scene, scene.group) : null);
+
+      const process = item => {
+        const dirty = this.isDirty(item),
+              node = bind(item, parent, sibling, mdef.tag, svg);
+
+        if (dirty) {
+          this._update(mdef, node, item);
+
+          if (isGroup) recurse(this, node, item);
+        }
+
+        sibling = node;
+        ++i;
+      };
+
+      if (mdef.nested) {
+        if (scene.items.length) process(scene.items[0]);
       } else {
-        // IN-PLACE UPDATE
-        this._update(mdef, item._svg, item);
+        visit(scene, process);
       }
-      item._update = id;
+
+      domClear(parent, i);
+      return parent;
+    },
+
+    /**
+     * Update the attributes of an SVG element for a mark item.
+     * @param {object} mdef - The mark definition object
+     * @param {SVGElement} el - The SVG element.
+     * @param {Item} item - The mark item.
+     */
+    _update(mdef, el, item) {
+      // set dom element and values cache
+      // provides access to emit method
+      element = el;
+      values = el.__values__; // apply aria-specific properties
+
+      ariaItemAttributes(emit, item); // apply svg attributes
+
+      mdef.attr(emit, item, this); // some marks need special treatment
+
+      const extra = mark_extras[mdef.type];
+      if (extra) extra.call(this, mdef, el, item); // apply svg style attributes
+      // note: element state may have been modified by 'extra' method
+
+      if (element) this.style(element, item);
+    },
+
+    /**
+     * Update the presentation attributes of an SVG element for a mark item.
+     * @param {SVGElement} el - The SVG element.
+     * @param {Item} item - The mark item.
+     */
+    style(el, item) {
+      if (item == null) return;
+
+      for (const prop in styles) {
+        let value = prop === 'font' ? fontFamily(item) : item[prop];
+        if (value === values[prop]) continue;
+        const name = styles[prop];
+
+        if (value == null) {
+          el.removeAttribute(name);
+        } else {
+          if (isGradient(value)) {
+            value = gradientRef(value, this._defs.gradient, href());
+          }
+
+          el.setAttribute(name, value + '');
+        }
+
+        values[prop] = value;
+      }
+    },
+
+    /**
+     * Render SVG defs, as needed.
+     * Must be called *after* marks have been processed to ensure the
+     * collected state is current and accurate.
+     */
+    defs() {
+      const svg = this._svg,
+            defs = this._defs;
+      let el = defs.el,
+          index = 0;
+
+      for (const id in defs.gradient) {
+        if (!el) defs.el = el = domChild(svg, RootIndex + 1, 'defs', svgns);
+        index = updateGradient(el, defs.gradient[id], index);
+      }
+
+      for (const id in defs.clipping) {
+        if (!el) defs.el = el = domChild(svg, RootIndex + 1, 'defs', svgns);
+        index = updateClipping(el, defs.clipping[id], index);
+      } // clean-up
+
+
+      if (el) {
+        index === 0 ? (svg.removeChild(el), defs.el = null) : domClear(el, index);
+      }
+    },
+
+    /**
+     * Clear defs caches.
+     */
+    _clearDefs() {
+      const def = this._defs;
+      def.gradient = {};
+      def.clipping = {};
     }
-    return !this._dirtyAll;
-  };
+
+  }); // mark ancestor chain with a dirty id
 
   function dirtyParents(item, id) {
-    for (; item && item.dirty !== id; item=item.mark.group) {
+    for (; item && item.dirty !== id; item = item.mark.group) {
       item.dirty = id;
+
       if (item.mark && item.mark.dirty !== id) {
         item.mark.dirty = id;
       } else return;
     }
-  }
+  } // update gradient definitions
 
 
-  // -- Construct & maintain scenegraph to SVG mapping ---
+  function updateGradient(el, grad, index) {
+    let i, n, stop;
 
-  // Draw a mark container.
-  prototype$8.draw = function(el, scene, prev) {
-    if (!this.isDirty(scene)) return scene._svg;
-
-    var renderer = this,
-        svg = this._svg,
-        mdef = marks[scene.marktype],
-        events = scene.interactive === false ? 'none' : null,
-        isGroup = mdef.tag === 'g',
-        sibling = null,
-        i = 0,
-        parent;
-
-    parent = bind(scene, el, prev, 'g', svg);
-    parent.setAttribute('class', cssClass(scene));
-    if (!isGroup) {
-      parent.style.setProperty('pointer-events', events);
-    }
-    if (scene.clip) {
-      parent.setAttribute('clip-path', clip(renderer, scene, scene.group));
+    if (grad.gradient === 'radial') {
+      // SVG radial gradients automatically transform to normalized bbox
+      // coordinates, in a way that is cumbersome to replicate in canvas.
+      // We wrap the radial gradient in a pattern element, allowing us to
+      // maintain a circular gradient that matches what canvas provides.
+      let pt = domChild(el, index++, 'pattern', svgns);
+      setAttributes(pt, {
+        id: patternPrefix + grad.id,
+        viewBox: '0,0,1,1',
+        width: '100%',
+        height: '100%',
+        preserveAspectRatio: 'xMidYMid slice'
+      });
+      pt = domChild(pt, 0, 'rect', svgns);
+      setAttributes(pt, {
+        width: 1,
+        height: 1,
+        fill: `url(${href()}#${grad.id})`
+      });
+      el = domChild(el, index++, 'radialGradient', svgns);
+      setAttributes(el, {
+        id: grad.id,
+        fx: grad.x1,
+        fy: grad.y1,
+        fr: grad.r1,
+        cx: grad.x2,
+        cy: grad.y2,
+        r: grad.r2
+      });
     } else {
-      parent.removeAttribute('clip-path');
+      el = domChild(el, index++, 'linearGradient', svgns);
+      setAttributes(el, {
+        id: grad.id,
+        x1: grad.x1,
+        x2: grad.x2,
+        y1: grad.y1,
+        y2: grad.y2
+      });
     }
 
-    function process(item) {
-      var dirty = renderer.isDirty(item),
-          node = bind(item, parent, sibling, mdef.tag, svg);
-
-      if (dirty) {
-        renderer._update(mdef, node, item);
-        if (isGroup) recurse(renderer, node, item);
-      }
-
-      sibling = node;
-      ++i;
+    for (i = 0, n = grad.stops.length; i < n; ++i) {
+      stop = domChild(el, i, 'stop', svgns);
+      stop.setAttribute('offset', grad.stops[i].offset);
+      stop.setAttribute('stop-color', grad.stops[i].color);
     }
 
-    if (mdef.nested) {
-      if (scene.items.length) process(scene.items[0]);
+    domClear(el, i);
+    return index;
+  } // update clipping path definitions
+
+
+  function updateClipping(el, clip, index) {
+    let mask;
+    el = domChild(el, index, 'clipPath', svgns);
+    el.setAttribute('id', clip.id);
+
+    if (clip.path) {
+      mask = domChild(el, 0, 'path', svgns);
+      mask.setAttribute('d', clip.path);
     } else {
-      visit(scene, process);
+      mask = domChild(el, 0, 'rect', svgns);
+      setAttributes(mask, {
+        x: 0,
+        y: 0,
+        width: clip.width,
+        height: clip.height
+      });
     }
 
-    domClear(parent, i);
-    return parent;
-  };
+    domClear(el, 1);
+    return index + 1;
+  } // Recursively process group contents.
 
-  // Recursively process group contents.
+
   function recurse(renderer, el, group) {
-    el = el.lastChild;
-    var prev, idx = 0;
-
-    visit(group, function(item) {
-      prev = renderer.draw(el, item, prev);
+    el = el.lastChild.previousSibling;
+    let prev,
+        idx = 0;
+    visit(group, item => {
+      prev = renderer.mark(el, item, prev);
       ++idx;
-    });
+    }); // remove any extraneous DOM elements
 
-    // remove any extraneous DOM elements
     domClear(el, 1 + idx);
-  }
-
-  // Bind a scenegraph item to an SVG DOM element.
+  } // Bind a scenegraph item to an SVG DOM element.
   // Create new SVG elements as needed.
-  function bind(item, el, sibling, tag, svg) {
-    var node = item._svg, doc;
 
-    // create a new dom node if needed
+
+  function bind(item, el, sibling, tag, svg) {
+    let node = item._svg,
+        doc; // create a new dom node if needed
+
     if (!node) {
       doc = el.ownerDocument;
-      node = domCreate(doc, tag, ns);
+      node = domCreate(doc, tag, svgns);
       item._svg = node;
 
       if (item.mark) {
         node.__data__ = item;
-        node.__values__ = {fill: 'default'};
+        node.__values__ = {
+          fill: 'default'
+        }; // if group, create background, content, and foreground elements
 
-        // if group, create background and foreground elements
         if (tag === 'g') {
-          var bg = domCreate(doc, 'path', ns);
-          bg.setAttribute('class', 'background');
+          const bg = domCreate(doc, 'path', svgns);
           node.appendChild(bg);
           bg.__data__ = item;
-
-          var fg = domCreate(doc, 'g', ns);
+          const cg = domCreate(doc, 'g', svgns);
+          node.appendChild(cg);
+          cg.__data__ = item;
+          const fg = domCreate(doc, 'path', svgns);
           node.appendChild(fg);
           fg.__data__ = item;
+          fg.__values__ = {
+            fill: 'default'
+          };
         }
       }
-    }
+    } // (re-)insert if (a) not contained in SVG or (b) sibling order has changed
 
-    // (re-)insert if (a) not contained in SVG or (b) sibling order has changed
-    if (node.ownerSVGElement !== svg || hasSiblings(item) && node.previousSibling !== sibling) {
+
+    if (node.ownerSVGElement !== svg || siblingCheck(node, sibling)) {
       el.insertBefore(node, sibling ? sibling.nextSibling : el.firstChild);
     }
 
     return node;
-  }
-
-  function hasSiblings(item) {
-    var parent = item.mark || item.group;
-    return parent && parent.items.length > 1;
-  }
+  } // check if two nodes are ordered siblings
 
 
-  // -- Set attributes & styles on SVG elements ---
+  function siblingCheck(node, sibling) {
+    return node.parentNode && node.parentNode.childNodes.length > 1 && node.previousSibling != sibling; // treat null/undefined the same
+  } // -- Set attributes & styles on SVG elements ---
 
-  var element = null, // temp var for current SVG element
-      values = null;  // temp var for current values hash
 
+  let element = null,
+      // temp var for current SVG element
+  values = null; // temp var for current values hash
   // Extra configuration for certain mark types
-  var mark_extras = {
-    group: function(mdef, el, item) {
+
+  const mark_extras = {
+    group(mdef, el, item) {
+      const fg = element = el.childNodes[2];
+      values = fg.__values__;
+      mdef.foreground(emit, item, this);
       values = el.__values__; // use parent's values hash
 
       element = el.childNodes[1];
-      mdef.foreground(emit, item, this);
-
-      element = el.childNodes[0];
+      mdef.content(emit, item, this);
+      const bg = element = el.childNodes[0];
       mdef.background(emit, item, this);
+      const value = item.mark.interactive === false ? 'none' : null;
 
-      var value = item.mark.interactive === false ? 'none' : null;
       if (value !== values.events) {
-        element.style.setProperty('pointer-events', value);
+        setAttribute(fg, 'pointer-events', value);
+        setAttribute(bg, 'pointer-events', value);
         values.events = value;
       }
-    },
-    text: function(mdef, el, item) {
-      var value;
 
-      value = textValue(item);
-      if (value !== values.text) {
-        el.textContent = value;
-        values.text = value;
+      if (item.strokeForeground && item.stroke) {
+        const fill = item.fill;
+        setAttribute(fg, 'display', null); // set style of background
+
+        this.style(bg, item);
+        setAttribute(bg, 'stroke', null); // set style of foreground
+
+        if (fill) item.fill = null;
+        values = fg.__values__;
+        this.style(fg, item);
+        if (fill) item.fill = fill; // leave element null to prevent downstream styling
+
+        element = null;
+      } else {
+        // ensure foreground is ignored
+        setAttribute(fg, 'display', 'none');
+      }
+    },
+
+    image(mdef, el, item) {
+      if (item.smooth === false) {
+        setStyle(el, 'image-rendering', 'optimizeSpeed');
+        setStyle(el, 'image-rendering', 'pixelated');
+      } else {
+        setStyle(el, 'image-rendering', null);
+      }
+    },
+
+    text(mdef, el, item) {
+      const tl = textLines(item);
+      let key, value, doc, lh;
+
+      if (vegaUtil.isArray(tl)) {
+        // multi-line text
+        value = tl.map(_ => textValue(item, _));
+        key = value.join('\n'); // content cache key
+
+        if (key !== values.text) {
+          domClear(el, 0);
+          doc = el.ownerDocument;
+          lh = lineHeight(item);
+          value.forEach((t, i) => {
+            const ts = domCreate(doc, 'tspan', svgns);
+            ts.__data__ = item; // data binding
+
+            ts.textContent = t;
+
+            if (i) {
+              ts.setAttribute('x', 0);
+              ts.setAttribute('dy', lh);
+            }
+
+            el.appendChild(ts);
+          });
+          values.text = key;
+        }
+      } else {
+        // single-line text
+        value = textValue(item, tl);
+
+        if (value !== values.text) {
+          el.textContent = value;
+          values.text = value;
+        }
       }
 
-      setStyle(el, 'font-family', fontFamily(item));
-      setStyle(el, 'font-size', fontSize(item) + 'px');
-      setStyle(el, 'font-style', item.fontStyle);
-      setStyle(el, 'font-variant', item.fontVariant);
-      setStyle(el, 'font-weight', item.fontWeight);
+      setAttribute(el, 'font-family', fontFamily(item));
+      setAttribute(el, 'font-size', fontSize(item) + 'px');
+      setAttribute(el, 'font-style', item.fontStyle);
+      setAttribute(el, 'font-variant', item.fontVariant);
+      setAttribute(el, 'font-weight', item.fontWeight);
     }
+
   };
+
+  function emit(name, value, ns) {
+    // early exit if value is unchanged
+    if (value === values[name]) return; // use appropriate method given namespace (ns)
+
+    if (ns) {
+      setAttributeNS(element, name, value, ns);
+    } else {
+      setAttribute(element, name, value);
+    } // note current value for future comparison
+
+
+    values[name] = value;
+  }
 
   function setStyle(el, name, value) {
     if (value !== values[name]) {
@@ -3811,395 +4666,390 @@
       } else {
         el.style.setProperty(name, value + '');
       }
+
       values[name] = value;
     }
   }
 
-  prototype$8._update = function(mdef, el, item) {
-    // set dom element and values cache
-    // provides access to emit method
-    element = el;
-    values = el.__values__;
-
-    // apply svg attributes
-    mdef.attr(emit, item, this);
-
-    // some marks need special treatment
-    var extra = mark_extras[mdef.type];
-    if (extra) extra.call(this, mdef, el, item);
-
-    // apply svg css styles
-    // note: element may be modified by 'extra' method
-    this.style(element, item);
-  };
-
-  function emit(name, value, ns) {
-    // early exit if value is unchanged
-    if (value === values[name]) return;
-
-    if (value != null) {
-      // if value is provided, update DOM attribute
-      if (ns) {
-        element.setAttributeNS(ns, name, value);
-      } else {
-        element.setAttribute(name, value);
-      }
-    } else {
-      // else remove DOM attribute
-      if (ns) {
-        element.removeAttributeNS(ns, name);
-      } else {
-        element.removeAttribute(name);
-      }
+  function setAttributes(el, attrs) {
+    for (const key in attrs) {
+      setAttribute(el, key, attrs[key]);
     }
-
-    // note current value for future comparison
-    values[name] = value;
   }
 
-  prototype$8.style = function(el, o) {
-    if (o == null) return;
-    var i, n, prop, name, value;
-
-    for (i=0, n=styleProperties.length; i<n; ++i) {
-      prop = styleProperties[i];
-      value = o[prop];
-
-      if (prop === 'font') {
-        value = fontFamily(o);
-      }
-
-      if (value === values[prop]) continue;
-
-      name = styles[prop];
-      if (value == null) {
-        if (name === 'fill') {
-          el.style.setProperty(name, 'none');
-        } else {
-          el.style.removeProperty(name);
-        }
-      } else {
-        if (value.id) {
-          // ensure definition is included
-          this._defs.gradient[value.id] = value;
-          value = 'url(' + href() + '#' + value.id + ')';
-        }
-        el.style.setProperty(name, value + '');
-      }
-
-      values[prop] = value;
+  function setAttribute(el, name, value) {
+    if (value != null) {
+      // if value is provided, update DOM attribute
+      el.setAttribute(name, value);
+    } else {
+      // else remove DOM attribute
+      el.removeAttribute(name);
     }
-  };
+  }
+
+  function setAttributeNS(el, name, value, ns) {
+    if (value != null) {
+      // if value is provided, update DOM attribute
+      el.setAttributeNS(ns, name, value);
+    } else {
+      // else remove DOM attribute
+      el.removeAttributeNS(ns, name);
+    }
+  }
 
   function href() {
-    var loc;
-    return typeof window === 'undefined' ? ''
-      : (loc = window.location).hash ? loc.href.slice(0, -loc.hash.length)
-      : loc.href;
+    let loc;
+    return typeof window === 'undefined' ? '' : (loc = window.location).hash ? loc.href.slice(0, -loc.hash.length) : loc.href;
   }
 
   function SVGStringRenderer(loader) {
     Renderer.call(this, loader);
-
-    this._text = {
-      head: '',
-      bg:   '',
-      root: '',
-      foot: '',
-      defs: '',
-      body: ''
-    };
-
+    this._text = null;
     this._defs = {
       gradient: {},
       clipping: {}
     };
   }
+  vegaUtil.inherits(SVGStringRenderer, Renderer, {
+    /**
+     * Returns the rendered SVG text string,
+     * or null if rendering has not yet occurred.
+     */
+    svg() {
+      return this._text;
+    },
 
-  var prototype$9 = vegaUtil.inherits(SVGStringRenderer, Renderer);
-  var base$2 = Renderer.prototype;
+    /**
+     * Internal rendering method.
+     * @param {object} scene - The root mark of a scenegraph to render.
+     */
+    _render(scene) {
+      const m = markup(); // svg tag
 
-  prototype$9.resize = function(width, height, origin, scaleFactor) {
-    base$2.resize.call(this, width, height, origin, scaleFactor);
-    var o = this._origin,
-        t = this._text;
+      m.open('svg', vegaUtil.extend({}, metadata, {
+        class: 'marks',
+        width: this._width * this._scale,
+        height: this._height * this._scale,
+        viewBox: `0 0 ${this._width} ${this._height}`
+      })); // background, if defined
 
-    var attr = {
-      class:   'marks',
-      width:   this._width * this._scale,
-      height:  this._height * this._scale,
-      viewBox: '0 0 ' + this._width + ' ' + this._height
-    };
-    for (var key in metadata) {
-      attr[key] = metadata[key];
-    }
+      const bg = this._bgcolor;
 
-    t.head = openTag('svg', attr);
+      if (bg && bg !== 'transparent' && bg !== 'none') {
+        m.open('rect', {
+          width: this._width,
+          height: this._height,
+          fill: bg
+        }).close();
+      } // root content group
 
-    var bg = this._bgcolor;
-    if (bg === 'transparent' || bg === 'none') bg = null;
 
-    if (bg) {
-      t.bg = openTag('rect', {
-        width:  this._width,
-        height: this._height,
-        style:  'fill: ' + bg + ';'
-      }) + closeTag('rect');
-    } else {
-      t.bg = '';
-    }
-
-    t.root = openTag('g', {
-      transform: 'translate(' + o + ')'
-    });
-
-    t.foot = closeTag('g') + closeTag('svg');
-
-    return this;
-  };
-
-  prototype$9.background = function() {
-    var rv = base$2.background.apply(this, arguments);
-    if (arguments.length && this._text.head) {
-      this.resize(this._width, this._height, this._origin, this._scale);
-    }
-    return rv;
-  };
-
-  prototype$9.svg = function() {
-    var t = this._text;
-    return t.head + t.bg + t.defs + t.root + t.body + t.foot;
-  };
-
-  prototype$9._render = function(scene) {
-    this._text.body = this.mark(scene);
-    this._text.defs = this.buildDefs();
-    return this;
-  };
-
-  prototype$9.buildDefs = function() {
-    var all = this._defs,
-        defs = '',
-        i, id, def, stops;
-
-    for (id in all.gradient) {
-      def = all.gradient[id];
-      stops = def.stops;
-
-      defs += openTag('linearGradient', {
-        id: id,
-        x1: def.x1,
-        x2: def.x2,
-        y1: def.y1,
-        y2: def.y2
+      m.open('g', rootAttributes, {
+        transform: 'translate(' + this._origin + ')'
       });
+      this.mark(m, scene);
+      m.close(); // </g>
+      // defs
 
-      for (i=0; i<stops.length; ++i) {
-        defs += openTag('stop', {
-          offset: stops[i].offset,
-          'stop-color': stops[i].color
-        }) + closeTag('stop');
+      this.defs(m); // get SVG text string
+
+      this._text = m.close() + '';
+      return this;
+    },
+
+    /**
+     * Render a set of mark items.
+     * @param {object} m - The markup context.
+     * @param {object} scene - The mark parent to render.
+     */
+    mark(m, scene) {
+      const mdef = Marks[scene.marktype],
+            tag = mdef.tag,
+            attrList = [ariaItemAttributes, mdef.attr]; // render opening group tag
+
+      m.open('g', {
+        'class': cssClass(scene),
+        'clip-path': scene.clip ? clip$1(this, scene, scene.group) : null
+      }, ariaMarkAttributes(scene), {
+        'pointer-events': tag !== 'g' && scene.interactive === false ? 'none' : null
+      }); // render contained elements
+
+      const process = item => {
+        const href = this.href(item);
+        if (href) m.open('a', href);
+        m.open(tag, this.attr(scene, item, attrList, tag !== 'g' ? tag : null));
+
+        if (tag === 'text') {
+          const tl = textLines(item);
+
+          if (vegaUtil.isArray(tl)) {
+            // multi-line text
+            const attrs = {
+              x: 0,
+              dy: lineHeight(item)
+            };
+
+            for (let i = 0; i < tl.length; ++i) {
+              m.open('tspan', i ? attrs : null).text(textValue(item, tl[i])).close();
+            }
+          } else {
+            // single-line text
+            m.text(textValue(item, tl));
+          }
+        } else if (tag === 'g') {
+          const fore = item.strokeForeground,
+                fill = item.fill,
+                stroke = item.stroke;
+
+          if (fore && stroke) {
+            item.stroke = null;
+          }
+
+          m.open('path', this.attr(scene, item, mdef.background, 'bgrect')).close(); // recurse for group content
+
+          m.open('g', this.attr(scene, item, mdef.content));
+          visit(item, scene => this.mark(m, scene));
+          m.close();
+
+          if (fore && stroke) {
+            if (fill) item.fill = null;
+            item.stroke = stroke;
+            m.open('path', this.attr(scene, item, mdef.foreground, 'bgrect')).close();
+            if (fill) item.fill = fill;
+          } else {
+            m.open('path', this.attr(scene, item, mdef.foreground, 'bgfore')).close();
+          }
+        }
+
+        m.close(); // </tag>
+
+        if (href) m.close(); // </a>
+      };
+
+      if (mdef.nested) {
+        if (scene.items && scene.items.length) process(scene.items[0]);
+      } else {
+        visit(scene, process);
+      } // render closing group tag
+
+
+      return m.close(); // </g>
+    },
+
+    /**
+     * Get href attributes for a hyperlinked mark item.
+     * @param {Item} item - The mark item.
+     */
+    href(item) {
+      const href = item.href;
+      let attr;
+
+      if (href) {
+        if (attr = this._hrefs && this._hrefs[href]) {
+          return attr;
+        } else {
+          this.sanitizeURL(href).then(attr => {
+            // rewrite to use xlink namespace
+            attr['xlink:href'] = attr.href;
+            attr.href = null;
+            (this._hrefs || (this._hrefs = {}))[href] = attr;
+          });
+        }
       }
 
-      defs += closeTag('linearGradient');
-    }
+      return null;
+    },
 
-    for (id in all.clipping) {
-      def = all.clipping[id];
+    /**
+     * Get an object of SVG attributes for a mark item.
+     * @param {object} scene - The mark parent.
+     * @param {Item} item - The mark item.
+     * @param {array|function} attrs - One or more attribute emitters.
+     * @param {string} tag - The tag being rendered.
+     */
+    attr(scene, item, attrs, tag) {
+      const object = {},
+            emit = (name, value, ns, prefixed) => {
+        object[prefixed || name] = value;
+      }; // apply mark specific attributes
 
-      defs += openTag('clipPath', {id: id});
 
-      if (def.path) {
-        defs += openTag('path', {
-          d: def.path
-        }) + closeTag('path');
+      if (Array.isArray(attrs)) {
+        attrs.forEach(fn => fn(emit, item, this));
       } else {
-        defs += openTag('rect', {
-          x: 0,
-          y: 0,
-          width: def.width,
-          height: def.height
-        }) + closeTag('rect');
+        attrs(emit, item, this);
+      } // apply style attributes
+
+
+      if (tag) {
+        style(object, item, scene, tag, this._defs);
       }
 
-      defs += closeTag('clipPath');
-    }
+      return object;
+    },
 
-    return (defs.length > 0) ? openTag('defs') + defs + closeTag('defs') : '';
-  };
+    /**
+     * Render SVG defs, as needed.
+     * Must be called *after* marks have been processed to ensure the
+     * collected state is current and accurate.
+     * @param {object} m - The markup context.
+     */
+    defs(m) {
+      const gradient = this._defs.gradient,
+            clipping = this._defs.clipping,
+            count = Object.keys(gradient).length + Object.keys(clipping).length;
+      if (count === 0) return; // nothing to do
 
-  var object;
+      m.open('defs');
 
-  function emit$1(name, value, ns, prefixed) {
-    object[prefixed || name] = value;
-  }
+      for (const id in gradient) {
+        const def = gradient[id],
+              stops = def.stops;
 
-  prototype$9.attributes = function(attr, item) {
-    object = {};
-    attr(emit$1, item, this);
-    return object;
-  };
+        if (def.gradient === 'radial') {
+          // SVG radial gradients automatically transform to normalized bbox
+          // coordinates, in a way that is cumbersome to replicate in canvas.
+          // We wrap the radial gradient in a pattern element, allowing us to
+          // maintain a circular gradient that matches what canvas provides.
+          m.open('pattern', {
+            id: patternPrefix + id,
+            viewBox: '0,0,1,1',
+            width: '100%',
+            height: '100%',
+            preserveAspectRatio: 'xMidYMid slice'
+          });
+          m.open('rect', {
+            width: '1',
+            height: '1',
+            fill: 'url(#' + id + ')'
+          }).close();
+          m.close(); // </pattern>
 
-  prototype$9.href = function(item) {
-    var that = this,
-        href = item.href,
-        attr;
+          m.open('radialGradient', {
+            id: id,
+            fx: def.x1,
+            fy: def.y1,
+            fr: def.r1,
+            cx: def.x2,
+            cy: def.y2,
+            r: def.r2
+          });
+        } else {
+          m.open('linearGradient', {
+            id: id,
+            x1: def.x1,
+            x2: def.x2,
+            y1: def.y1,
+            y2: def.y2
+          });
+        }
 
-    if (href) {
-      if (attr = that._hrefs && that._hrefs[href]) {
-        return attr;
-      } else {
-        that.sanitizeURL(href).then(function(attr) {
-          // rewrite to use xlink namespace
-          // note that this will be deprecated in SVG 2.0
-          attr['xlink:href'] = attr.href;
-          attr.href = null;
-          (that._hrefs || (that._hrefs = {}))[href] = attr;
+        for (let i = 0; i < stops.length; ++i) {
+          m.open('stop', {
+            offset: stops[i].offset,
+            'stop-color': stops[i].color
+          }).close();
+        }
+
+        m.close();
+      }
+
+      for (const id in clipping) {
+        const def = clipping[id];
+        m.open('clipPath', {
+          id: id
         });
-      }
-    }
-    return null;
-  };
 
-  prototype$9.mark = function(scene) {
-    var renderer = this,
-        mdef = marks[scene.marktype],
-        tag  = mdef.tag,
-        defs = this._defs,
-        str = '',
-        style;
+        if (def.path) {
+          m.open('path', {
+            d: def.path
+          }).close();
+        } else {
+          m.open('rect', {
+            x: 0,
+            y: 0,
+            width: def.width,
+            height: def.height
+          }).close();
+        }
 
-    if (tag !== 'g' && scene.interactive === false) {
-      style = 'style="pointer-events: none;"';
-    }
-
-    // render opening group tag
-    str += openTag('g', {
-      'class': cssClass(scene),
-      'clip-path': scene.clip ? clip(renderer, scene, scene.group) : null
-    }, style);
-
-    // render contained elements
-    function process(item) {
-      var href = renderer.href(item);
-      if (href) str += openTag('a', href);
-
-      style = (tag !== 'g') ? applyStyles(item, scene, tag, defs) : null;
-      str += openTag(tag, renderer.attributes(mdef.attr, item), style);
-
-      if (tag === 'text') {
-        str += escape_text(textValue(item));
-      } else if (tag === 'g') {
-        str += openTag('path', renderer.attributes(mdef.background, item),
-          applyStyles(item, scene, 'bgrect', defs)) + closeTag('path');
-
-        str += openTag('g', renderer.attributes(mdef.foreground, item))
-          + renderer.markGroup(item)
-          + closeTag('g');
+        m.close();
       }
 
-      str += closeTag(tag);
-      if (href) str += closeTag('a');
+      m.close();
     }
 
-    if (mdef.nested) {
-      if (scene.items && scene.items.length) process(scene.items[0]);
-    } else {
-      visit(scene, process);
+  }); // Helper function for attr for style presentation attributes
+
+  function style(s, item, scene, tag, defs) {
+    if (item == null) return s;
+
+    if (tag === 'bgrect' && scene.interactive === false) {
+      s['pointer-events'] = 'none';
     }
 
-    // render closing group tag
-    return str + closeTag('g');
-  };
+    if (tag === 'bgfore') {
+      if (scene.interactive === false) {
+        s['pointer-events'] = 'none';
+      }
 
-  prototype$9.markGroup = function(scene) {
-    var renderer = this,
-        str = '';
+      s.display = 'none';
+      if (item.fill !== null) return s;
+    }
 
-    visit(scene, function(item) {
-      str += renderer.mark(item);
-    });
-
-    return str;
-  };
-
-  function applyStyles(o, mark, tag, defs) {
-    if (o == null) return '';
-    var i, n, prop, name, value, s = '';
-
-    if (tag === 'bgrect' && mark.interactive === false) {
-      s += 'pointer-events: none; ';
+    if (tag === 'image' && item.smooth === false) {
+      s.style = 'image-rendering: optimizeSpeed; image-rendering: pixelated;';
     }
 
     if (tag === 'text') {
-      s += 'font-family: ' + fontFamily(o) + '; ';
-      s += 'font-size: ' + fontSize(o) + 'px; ';
-      if (o.fontStyle) s += 'font-style: ' + o.fontStyle + '; ';
-      if (o.fontVariant) s += 'font-variant: ' + o.fontVariant + '; ';
-      if (o.fontWeight) s += 'font-weight: ' + o.fontWeight + '; ';
+      s['font-family'] = fontFamily(item);
+      s['font-size'] = fontSize(item) + 'px';
+      s['font-style'] = item.fontStyle;
+      s['font-variant'] = item.fontVariant;
+      s['font-weight'] = item.fontWeight;
     }
 
-    for (i=0, n=styleProperties.length; i<n; ++i) {
-      prop = styleProperties[i];
-      name = styles[prop];
-      value = o[prop];
+    for (const prop in styles) {
+      let value = item[prop];
+      const name = styles[prop];
 
-      if (value == null) {
-        if (name === 'fill') {
-          s += 'fill: none; ';
+      if (value === 'transparent' && (name === 'fill' || name === 'stroke')) ; else if (value != null) {
+        if (isGradient(value)) {
+          value = gradientRef(value, defs.gradient, '');
         }
-      } else if (value === 'transparent' && (name === 'fill' || name === 'stroke')) {
-        // transparent is not a legal SVG value, so map to none instead
-        s += name + ': none; ';
-      } else {
-        if (value.id) {
-          // ensure definition is included
-          defs.gradient[value.id] = value;
-          value = 'url(#' + value.id + ')';
-        }
-        s += name + ': ' + value + '; ';
+
+        s[name] = value;
       }
     }
 
-    return s ? 'style="' + s.trim() + '"' : null;
+    return s;
   }
 
-  function escape_text(s) {
-    return s.replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-  }
-
-  var Canvas = 'canvas';
-  var PNG = 'png';
-  var SVG = 'svg';
-  var None = 'none';
-
-  var RenderType = {
+  const Canvas = 'canvas';
+  const PNG = 'png';
+  const SVG = 'svg';
+  const None = 'none';
+  const RenderType = {
     Canvas: Canvas,
-    PNG:    PNG,
-    SVG:    SVG,
-    None:   None
+    PNG: PNG,
+    SVG: SVG,
+    None: None
   };
-
-  var modules = {};
-
+  const modules = {};
   modules[Canvas] = modules[PNG] = {
     renderer: CanvasRenderer,
     headless: CanvasRenderer,
-    handler:  CanvasHandler
+    handler: CanvasHandler
   };
-
   modules[SVG] = {
     renderer: SVGRenderer,
     headless: SVGStringRenderer,
-    handler:  SVGHandler
+    handler: SVGHandler
   };
-
   modules[None] = {};
-
   function renderModule(name, _) {
     name = String(name || '').toLowerCase();
+
     if (arguments.length > 1) {
       modules[name] = _;
       return this;
@@ -4208,13 +5058,83 @@
     }
   }
 
-  var clipBounds = new Bounds();
+  function intersect(scene, bounds, filter) {
+    const hits = [],
+          // intersection results
+    box = new Bounds().union(bounds),
+          // defensive copy
+    type = scene.marktype;
+    return type ? intersectMark(scene, box, filter, hits) : type === 'group' ? intersectGroup(scene, box, filter, hits) : vegaUtil.error('Intersect scene must be mark node or group item.');
+  }
 
-  function boundClip(mark) {
-    var clip = mark.clip;
+  function intersectMark(mark, box, filter, hits) {
+    if (visitMark(mark, box, filter)) {
+      const items = mark.items,
+            type = mark.marktype,
+            n = items.length;
+      let i = 0;
+
+      if (type === 'group') {
+        for (; i < n; ++i) {
+          intersectGroup(items[i], box, filter, hits);
+        }
+      } else {
+        for (const test = Marks[type].isect; i < n; ++i) {
+          const item = items[i];
+          if (intersectItem(item, box, test)) hits.push(item);
+        }
+      }
+    }
+
+    return hits;
+  }
+
+  function visitMark(mark, box, filter) {
+    // process if bounds intersect and if
+    // (1) mark is a group mark (so we must recurse), or
+    // (2) mark is interactive and passes filter
+    return mark.bounds && box.intersects(mark.bounds) && (mark.marktype === 'group' || mark.interactive !== false && (!filter || filter(mark)));
+  }
+
+  function intersectGroup(group, box, filter, hits) {
+    // test intersect against group
+    // skip groups by default unless filter says otherwise
+    if (filter && filter(group.mark) && intersectItem(group, box, Marks.group.isect)) {
+      hits.push(group);
+    } // recursively test children marks
+    // translate box to group coordinate space
+
+
+    const marks = group.items,
+          n = marks && marks.length;
+
+    if (n) {
+      const x = group.x || 0,
+            y = group.y || 0;
+      box.translate(-x, -y);
+
+      for (let i = 0; i < n; ++i) {
+        intersectMark(marks[i], box, filter, hits);
+      }
+
+      box.translate(x, y);
+    }
+
+    return hits;
+  }
+
+  function intersectItem(item, box, test) {
+    // test bounds enclosure, bounds intersection, then detailed test
+    const bounds = item.bounds;
+    return box.encloses(bounds) || box.intersects(bounds) && test(item, box);
+  }
+
+  const clipBounds = new Bounds();
+  function boundClip (mark) {
+    const clip = mark.clip;
 
     if (vegaUtil.isFunction(clip)) {
-      clip(context(clipBounds.clear()));
+      clip(boundContext(clipBounds.clear()));
     } else if (clip) {
       clipBounds.set(0, 0, mark.group.width, mark.group.height);
     } else return;
@@ -4222,18 +5142,10 @@
     mark.bounds.intersect(clipBounds);
   }
 
-  var TOLERANCE = 1e-9;
-
+  const TOLERANCE = 1e-9;
   function sceneEqual(a, b, key) {
-    return (a === b) ? true
-      : (key === 'path') ? pathEqual(a, b)
-      : (a instanceof Date && b instanceof Date) ? +a === +b
-      : (vegaUtil.isNumber(a) && vegaUtil.isNumber(b)) ? Math.abs(a - b) <= TOLERANCE
-      : (!a || !b || !vegaUtil.isObject(a) && !vegaUtil.isObject(b)) ? a == b
-      : (a == null || b == null) ? false
-      : objectEqual(a, b);
+    return a === b ? true : key === 'path' ? pathEqual(a, b) : a instanceof Date && b instanceof Date ? +a === +b : vegaUtil.isNumber(a) && vegaUtil.isNumber(b) ? Math.abs(a - b) <= TOLERANCE : !a || !b || !vegaUtil.isObject(a) && !vegaUtil.isObject(b) ? a == b : objectEqual(a, b);
   }
-
   function pathEqual(a, b) {
     return sceneEqual(pathParse(a), pathParse(b));
   }
@@ -4241,10 +5153,9 @@
   function objectEqual(a, b) {
     var ka = Object.keys(a),
         kb = Object.keys(b),
-        key, i;
-
+        key,
+        i;
     if (ka.length !== kb.length) return false;
-
     ka.sort();
     kb.sort();
 
@@ -4260,52 +5171,65 @@
     return typeof a === typeof b;
   }
 
+  function resetSVGDefIds() {
+    resetSVGClipId();
+    resetSVGGradientId();
+  }
+
   exports.Bounds = Bounds;
-  exports.Gradient = Gradient;
-  exports.GroupItem = GroupItem;
-  exports.ResourceLoader = ResourceLoader;
-  exports.Item = Item;
-  exports.Scenegraph = Scenegraph;
-  exports.Handler = Handler;
-  exports.Renderer = Renderer;
   exports.CanvasHandler = CanvasHandler;
   exports.CanvasRenderer = CanvasRenderer;
+  exports.Gradient = Gradient;
+  exports.GroupItem = GroupItem;
+  exports.Handler = Handler;
+  exports.Item = Item;
+  exports.Marks = Marks;
+  exports.RenderType = RenderType;
+  exports.Renderer = Renderer;
+  exports.ResourceLoader = ResourceLoader;
   exports.SVGHandler = SVGHandler;
   exports.SVGRenderer = SVGRenderer;
   exports.SVGStringRenderer = SVGStringRenderer;
-  exports.RenderType = RenderType;
-  exports.renderModule = renderModule;
-  exports.Marks = marks;
+  exports.Scenegraph = Scenegraph;
   exports.boundClip = boundClip;
-  exports.boundContext = context;
-  exports.boundStroke = boundStroke;
+  exports.boundContext = boundContext;
   exports.boundItem = boundItem;
   exports.boundMark = boundMark;
-  exports.pathCurves = curves;
-  exports.pathSymbols = symbols;
-  exports.pathRectangle = vg_rect;
-  exports.pathTrail = vg_trail;
-  exports.pathParse = pathParse;
-  exports.pathRender = pathRender;
-  exports.point = point;
-  exports.domCreate = domCreate;
-  exports.domFind = domFind;
+  exports.boundStroke = boundStroke;
   exports.domChild = domChild;
   exports.domClear = domClear;
-  exports.openTag = openTag;
-  exports.closeTag = closeTag;
+  exports.domCreate = domCreate;
+  exports.domFind = domFind;
   exports.font = font;
   exports.fontFamily = fontFamily;
   exports.fontSize = fontSize;
-  exports.textMetrics = textMetrics;
-  exports.resetSVGClipId = resetSVGClipId;
-  exports.sceneEqual = sceneEqual;
+  exports.intersect = intersect;
+  exports.intersectBoxLine = intersectBoxLine;
+  exports.intersectPath = intersectPath;
+  exports.intersectPoint = intersectPoint;
+  exports.intersectRule = intersectRule;
+  exports.lineHeight = lineHeight;
+  exports.markup = markup;
+  exports.multiLineOffset = multiLineOffset;
+  exports.pathCurves = curves;
   exports.pathEqual = pathEqual;
-  exports.sceneToJSON = sceneToJSON;
+  exports.pathParse = pathParse;
+  exports.pathRectangle = vg_rect;
+  exports.pathRender = pathRender;
+  exports.pathSymbols = symbols;
+  exports.pathTrail = vg_trail;
+  exports.point = point;
+  exports.renderModule = renderModule;
+  exports.resetSVGClipId = resetSVGClipId;
+  exports.resetSVGDefIds = resetSVGDefIds;
+  exports.sceneEqual = sceneEqual;
   exports.sceneFromJSON = sceneFromJSON;
-  exports.sceneZOrder = zorder;
-  exports.sceneVisit = visit;
   exports.scenePickVisit = pickVisit;
+  exports.sceneToJSON = sceneToJSON;
+  exports.sceneVisit = visit;
+  exports.sceneZOrder = zorder;
+  exports.serializeXML = serializeXML;
+  exports.textMetrics = textMetrics;
 
   Object.defineProperty(exports, '__esModule', { value: true });
 

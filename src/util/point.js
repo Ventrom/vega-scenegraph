@@ -5,7 +5,7 @@ export default function(event, el) {
       event.offsetY - (el.clientTop || 0)
     ];
   }
-  var rect = el.getBoundingClientRect();
+  const rect = el.getBoundingClientRect();
   return [
     event.clientX - rect.left - (el.clientLeft || 0),
     event.clientY - rect.top - (el.clientTop || 0)
