@@ -8,7 +8,7 @@ import {fontFamily, fontSize, lineHeight, textLines, textValue} from './util/tex
 import {visit} from './util/visit';
 import clip from './util/svg/clip';
 import metadata from './util/svg/metadata';
-import {rootAttributes, styles} from './util/svg/styles';
+import {rootAttributes, stylesAttr, stylesCss} from './util/svg/styles';
 import {inherits, isArray} from 'vega-util';
 
 const RootIndex = 0,
@@ -177,6 +177,7 @@ inherits(SVGRenderer, Renderer, {
   isDirty(item) {
     return this._dirtyAll
       || !item._svg
+      || !item._svg.ownerSVGElement
       || item.dirty === this._dirtyID;
   },
 
@@ -248,15 +249,14 @@ inherits(SVGRenderer, Renderer, {
    * @param {SVGElement} prev - The previous sibling in the SVG tree.
    */
   mark(el, scene, prev) {
-    if (!this.isDirty(scene)) return scene._svg;
+    if (!this.isDirty(scene)) {
+      return scene._svg;
+    }
 
     const svg = this._svg,
           mdef = marks[scene.marktype],
           events = scene.interactive === false ? 'none' : null,
           isGroup = mdef.tag === 'g';
-
-    let sibling = null,
-        i = 0;
 
     const parent = bind(scene, el, prev, 'g', svg);
     parent.setAttribute('class', cssClass(scene));
@@ -270,6 +270,9 @@ inherits(SVGRenderer, Renderer, {
     }
     setAttribute(parent, 'clip-path',
       scene.clip ? clip(this, scene, scene.group) : null);
+
+    let sibling = null,
+        i = 0;
 
     const process = item => {
       const dirty = this.isDirty(item),
@@ -329,11 +332,11 @@ inherits(SVGRenderer, Renderer, {
   style(el, item) {
     if (item == null) return;
 
-    for (const prop in styles) {
+    for (const prop in stylesAttr) {
       let value = prop === 'font' ? fontFamily(item) : item[prop];
       if (value === values[prop]) continue;
 
-      const name = styles[prop];
+      const name = stylesAttr[prop];
       if (value == null) {
         el.removeAttribute(name);
       } else {
@@ -344,6 +347,10 @@ inherits(SVGRenderer, Renderer, {
       }
 
       values[prop] = value;
+    }
+
+    for (const prop in stylesCss) {
+      setStyle(el, stylesCss[prop], item[prop]);
     }
   },
 
@@ -474,6 +481,8 @@ function updateClipping(el, clip, index) {
 
 // Recursively process group contents.
 function recurse(renderer, el, group) {
+  // child 'g' element is second to last among children (path, g, path)
+  // other children here are foreground and background path elements
   el = el.lastChild.previousSibling;
   let prev, idx = 0;
 

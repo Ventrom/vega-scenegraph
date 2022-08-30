@@ -1,6 +1,7 @@
 import { hasOwnProperty, isFunction, inherits, truthy, lruCache, isArray, error, toSet, array, peek, extend, isNumber, isObject } from 'vega-util';
 import { curveBasis, curveBasisClosed, curveBasisOpen, curveBundle, curveCardinal, curveCardinalOpen, curveCardinalClosed, curveCatmullRom, curveCatmullRomClosed, curveCatmullRomOpen, curveLinear, curveLinearClosed, curveMonotoneY, curveMonotoneX, curveNatural, curveStep, curveStepAfter, curveStepBefore, arc as arc$2, area as area$2, line as line$2, symbol as symbol$2 } from 'd3-shape';
 import { path as path$3 } from 'd3-path';
+export { path } from 'd3-path';
 import { image as image$1, canvas } from 'vega-canvas';
 import { loader } from 'vega-loader';
 import { isDiscrete, domainCaption } from 'vega-scale';
@@ -150,56 +151,80 @@ function curves(type, orientation, tension) {
   return curve;
 }
 
-// Path parsing and rendering code adapted from fabric.js -- Thanks!
-const cmdlen = {
+const paramCounts = {
   m: 2,
   l: 2,
   h: 1,
   v: 1,
+  z: 0,
   c: 6,
   s: 4,
   q: 4,
   t: 2,
   a: 7
-},
-      regexp = [/([MLHVCSQTAZmlhvcsqtaz])/g, /###/, /(\.\d+)(\.\d)/g, /(\d)([-+])/g, /\s|,|###/];
-function pathParse (pathstr) {
-  const result = [];
-  let curr, chunks, parsed, param, cmd, len, i, j, n, m; // First, break path into command sequence
+};
+const commandPattern = /[mlhvzcsqta]([^mlhvzcsqta]+|$)/gi;
+const numberPattern = /^[+-]?(([0-9]*\.[0-9]+)|([0-9]+\.)|([0-9]+))([eE][+-]?[0-9]+)?/;
+const spacePattern = /^((\s+,?\s*)|(,\s*))/;
+const flagPattern = /^[01]/;
+function parse(path) {
+  const commands = [];
+  const matches = path.match(commandPattern) || [];
+  matches.forEach(str => {
+    let cmd = str[0];
+    const type = cmd.toLowerCase(); // parse parameters
 
-  const path = pathstr.slice().replace(regexp[0], '###$1').split(regexp[1]).slice(1); // Next, parse each command in turn
+    const paramCount = paramCounts[type];
+    const params = parseParams(type, paramCount, str.slice(1).trim());
+    const count = params.length; // error checking based on parameter count
 
-  for (i = 0, n = path.length; i < n; ++i) {
-    curr = path[i];
-    chunks = curr.slice(1).trim().replace(regexp[2], '$1###$2').replace(regexp[3], '$1###$2').split(regexp[4]);
-    cmd = curr.charAt(0);
-    parsed = [cmd];
+    if (count < paramCount || count && count % paramCount !== 0) {
+      throw Error('Invalid SVG path, incorrect parameter count');
+    } // register the command
 
-    for (j = 0, m = chunks.length; j < m; ++j) {
-      if ((param = +chunks[j]) === param) {
-        // not NaN
-        parsed.push(param);
-      }
+
+    commands.push([cmd, ...params.slice(0, paramCount)]); // exit now if we're done, also handles zero-param 'z'
+
+    if (count === paramCount) {
+      return;
+    } // handle implicit line-to
+
+
+    if (type === 'm') {
+      cmd = cmd === 'M' ? 'L' : 'l';
+    } // repeat command when given extended param list
+
+
+    for (let i = paramCount; i < count; i += paramCount) {
+      commands.push([cmd, ...params.slice(i, i + paramCount)]);
     }
+  });
+  return commands;
+}
 
-    len = cmdlen[cmd.toLowerCase()];
+function parseParams(type, paramCount, segment) {
+  const params = [];
 
-    if (parsed.length - 1 > len) {
-      const m = parsed.length;
-      j = 1;
-      result.push([cmd].concat(parsed.slice(j, j += len))); // handle implicit lineTo (#2803)
+  for (let index = 0; paramCount && index < segment.length;) {
+    for (let i = 0; i < paramCount; ++i) {
+      const pattern = type === 'a' && (i === 3 || i === 4) ? flagPattern : numberPattern;
+      const match = segment.slice(index).match(pattern);
 
-      cmd = cmd === 'M' ? 'L' : cmd === 'm' ? 'l' : cmd;
-
-      for (; j < m; j += len) {
-        result.push([cmd].concat(parsed.slice(j, j + len)));
+      if (match === null) {
+        throw Error('Invalid SVG path, incorrect parameter type');
       }
-    } else {
-      result.push(parsed);
+
+      index += match[0].length;
+      params.push(+match[0]);
+      const ws = segment.slice(index).match(spacePattern);
+
+      if (ws !== null) {
+        index += ws[0].length;
+      }
     }
   }
 
-  return result;
+  return params;
 }
 
 const DegToRad = Math.PI / 180;
@@ -346,7 +371,9 @@ function pathRender (context, path, l, t, sX, sY) {
   tempX,
       tempY,
       tempControlX,
-      tempControlY;
+      tempControlY,
+      anchorX = 0,
+      anchorY = 0;
   if (l == null) l = 0;
   if (t == null) t = 0;
   if (sX == null) sX = 1;
@@ -404,6 +431,8 @@ function pathRender (context, path, l, t, sX, sY) {
         // moveTo, relative
         x += current[1];
         y += current[2];
+        anchorX = x;
+        anchorY = y;
         context.moveTo(x + l, y + t);
         break;
 
@@ -411,6 +440,8 @@ function pathRender (context, path, l, t, sX, sY) {
         // moveTo, absolute
         x = current[1];
         y = current[2];
+        anchorX = x;
+        anchorY = y;
         context.moveTo(x + l, y + t);
         break;
 
@@ -553,6 +584,8 @@ function pathRender (context, path, l, t, sX, sY) {
 
       case 'z':
       case 'Z':
+        x = anchorX;
+        y = anchorY;
         context.closePath();
         break;
     }
@@ -716,7 +749,7 @@ var custom = {};
 
 function customSymbol(path) {
   if (!hasOwnProperty(custom, path)) {
-    const parsed = pathParse(path);
+    const parsed = parse(path);
     custom[path] = {
       draw: function (context, size) {
         pathRender(context, parsed, 0, 0, Math.sqrt(size) / 2);
@@ -2303,7 +2336,7 @@ function path$1(context, item) {
       cache = item.pathCache;
 
   if (!cache || cache.path !== path) {
-    (item.pathCache = cache = pathParse(path)).path = path;
+    (item.pathCache = cache = parse(path)).path = path;
   }
 
   if (a && context.rotate && context.translate) {
@@ -2447,7 +2480,7 @@ function measureWidth(item, text) {
 }
 
 function _measureWidth(text, currentFont) {
-  const key = `(${currentFont}) ${text}`;
+  const key = "(".concat(currentFont, ") ").concat(text);
   let width = widthCache.get(key);
 
   if (width === undefined) {
@@ -3025,16 +3058,12 @@ Handler.prototype = {
   /**
    * Add an event handler. Subclasses should override this method.
    */
-  on()
-  /*type, handler*/
-  {},
+  on() {},
 
   /**
    * Remove an event handler. Subclasses should override this method.
    */
-  off()
-  /*type, handler*/
-  {},
+  off() {},
 
   /**
    * Utility method for finding the array index of an event handler.
@@ -3243,9 +3272,7 @@ Renderer.prototype = {
    * incremental should implement this method.
    * @param {Item} item - The dirty item whose bounds should be redrawn.
    */
-  dirty()
-  /*item*/
-  {},
+  dirty() {},
 
   /**
    * Render an input scenegraph, potentially with a set of dirty items.
@@ -3279,9 +3306,7 @@ Renderer.prototype = {
    * method to actually perform rendering.
    * @param {object} scene - The root mark of a scenegraph to render.
    */
-  _render()
-  /*scene*/
-  {// subclasses to override
+  _render() {// subclasses to override
   },
 
   /**
@@ -3819,11 +3844,11 @@ const AriaGuides = {
   },
   'title-text': {
     desc: 'title',
-    caption: item => `Title text '${titleCaption(item)}'`
+    caption: item => "Title text '".concat(titleCaption(item), "'")
   },
   'title-subtitle': {
     desc: 'subtitle',
-    caption: item => `Subtitle text '${titleCaption(item)}'`
+    caption: item => "Subtitle text '".concat(titleCaption(item), "'")
   }
 }; // aria properties generated for mark item encoding channels
 
@@ -3844,7 +3869,7 @@ function ariaItemAttributes(emit, item) {
     const type = item.mark.marktype;
     emit(ARIA_LABEL, item.description);
     emit(ARIA_ROLE, item.ariaRole || (type === 'group' ? GRAPHICS_OBJECT : GRAPHICS_SYMBOL));
-    emit(ARIA_ROLEDESCRIPTION, item.ariaRoleDescription || `${type} mark`);
+    emit(ARIA_ROLEDESCRIPTION, item.ariaRoleDescription || "".concat(type, " mark"));
   }
 }
 function ariaMarkAttributes(mark) {
@@ -3856,7 +3881,7 @@ function ariaMarkAttributes(mark) {
 function ariaMark(mark) {
   const type = mark.marktype;
   const recurse = type === 'group' || type === 'text' || mark.items.some(_ => _.description != null && _.aria !== false);
-  return bundle(recurse ? GRAPHICS_OBJECT : GRAPHICS_SYMBOL, `${type} mark container`, mark.description);
+  return bundle(recurse ? GRAPHICS_OBJECT : GRAPHICS_SYMBOL, "".concat(type, " mark container"), mark.description);
 }
 
 function ariaGuide(mark, opt) {
@@ -3883,19 +3908,19 @@ function axisCaption(item) {
         locale = ctx.dataflow.locale(),
         type = scale.type,
         xy = orient === 'left' || orient === 'right' ? 'Y' : 'X';
-  return `${xy}-axis` + (title ? ` titled '${title}'` : '') + ` for a ${isDiscrete(type) ? 'discrete' : type} scale` + ` with ${domainCaption(locale, scale, item)}`;
+  return "".concat(xy, "-axis") + (title ? " titled '".concat(title, "'") : '') + " for a ".concat(isDiscrete(type) ? 'discrete' : type, " scale") + " with ".concat(domainCaption(locale, scale, item));
 }
 
 function legendCaption(item) {
   const datum = item.datum,
         title = datum.title ? extractTitle(item) : null,
-        type = `${datum.type || ''} legend`.trim(),
+        type = "".concat(datum.type || '', " legend").trim(),
         scales = datum.scales,
         props = Object.keys(scales),
         ctx = item.context,
         scale = ctx.scales[scales[props[0]]].value,
         locale = ctx.dataflow.locale();
-  return capitalize(type) + (title ? ` titled '${title}'` : '') + ` for ${channelCaption(props)}` + ` with ${domainCaption(locale, scale, item)}`;
+  return capitalize(type) + (title ? " titled '".concat(title, "'") : '') + " for ".concat(channelCaption(props)) + " with ".concat(domainCaption(locale, scale, item));
 }
 
 function extractTitle(item) {
@@ -3928,20 +3953,24 @@ function markup() {
         clear = () => outer = inner = '',
         push = tag => {
     if (outer) {
-      buf += `${outer}>${inner}`;
+      buf += "".concat(outer, ">").concat(inner);
       clear();
     }
 
     stack.push(tag);
   },
         attr = (name, value) => {
-    if (value != null) outer += ` ${name}="${attrText(value)}"`;
+    if (value != null) outer += " ".concat(name, "=\"").concat(attrText(value), "\"");
     return m;
   },
         m = {
-    open(tag, ...attrs) {
+    open(tag) {
       push(tag);
       outer = '<' + tag;
+
+      for (var _len = arguments.length, attrs = new Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
+        attrs[_key - 1] = arguments[_key];
+      }
 
       for (const set of attrs) {
         for (const key in set) attr(key, set[key]);
@@ -3954,9 +3983,9 @@ function markup() {
       const tag = stack.pop();
 
       if (outer) {
-        buf += outer + (inner ? `>${inner}</${tag}>` : '/>');
+        buf += outer + (inner ? ">".concat(inner, "</").concat(tag, ">") : '/>');
       } else {
-        buf += `</${tag}>`;
+        buf += "</".concat(tag, ">");
       }
 
       clear();
@@ -3985,11 +4014,9 @@ function _serialize(m, node) {
   }
 
   if (node.hasChildNodes()) {
-    const children = node.childNodes,
-          n = children.length;
+    const children = node.childNodes;
 
-    for (let i = 0; i < n; i++) {
-      const child = children[i];
+    for (const child of children) {
       child.nodeType === 3 // text node
       ? m.text(child.nodeValue) : _serialize(m, child);
     }
@@ -3998,7 +4025,7 @@ function _serialize(m, node) {
   return m.close();
 }
 
-const styles = {
+const stylesAttr = {
   fill: 'fill',
   fillOpacity: 'fill-opacity',
   stroke: 'stroke',
@@ -4009,7 +4036,9 @@ const styles = {
   strokeDash: 'stroke-dasharray',
   strokeDashOffset: 'stroke-dashoffset',
   strokeMiterLimit: 'stroke-miterlimit',
-  opacity: 'opacity',
+  opacity: 'opacity'
+};
+const stylesCss = {
   blend: 'mix-blend-mode'
 }; // ensure miter limit default is consistent with canvas (#2498)
 
@@ -4100,10 +4129,10 @@ inherits(SVGRenderer, Renderer, {
       setAttributes(this._svg, {
         width: this._width * this._scale,
         height: this._height * this._scale,
-        viewBox: `0 0 ${this._width} ${this._height}`
+        viewBox: "0 0 ".concat(this._width, " ").concat(this._height)
       });
 
-      this._root.setAttribute('transform', `translate(${this._origin})`);
+      this._root.setAttribute('transform', "translate(".concat(this._origin, ")"));
     }
 
     this._dirty = [];
@@ -4186,7 +4215,7 @@ inherits(SVGRenderer, Renderer, {
    * @param {Item} item - The mark item.
    */
   isDirty(item) {
-    return this._dirtyAll || !item._svg || item.dirty === this._dirtyID;
+    return this._dirtyAll || !item._svg || !item._svg.ownerSVGElement || item.dirty === this._dirtyID;
   },
 
   /**
@@ -4263,13 +4292,14 @@ inherits(SVGRenderer, Renderer, {
    * @param {SVGElement} prev - The previous sibling in the SVG tree.
    */
   mark(el, scene, prev) {
-    if (!this.isDirty(scene)) return scene._svg;
+    if (!this.isDirty(scene)) {
+      return scene._svg;
+    }
+
     const svg = this._svg,
           mdef = Marks[scene.marktype],
           events = scene.interactive === false ? 'none' : null,
           isGroup = mdef.tag === 'g';
-    let sibling = null,
-        i = 0;
     const parent = bind(scene, el, prev, 'g', svg);
     parent.setAttribute('class', cssClass(scene)); // apply aria attributes to parent container element
 
@@ -4282,6 +4312,8 @@ inherits(SVGRenderer, Renderer, {
     }
 
     setAttribute(parent, 'clip-path', scene.clip ? clip$1(this, scene, scene.group) : null);
+    let sibling = null,
+        i = 0;
 
     const process = item => {
       const dirty = this.isDirty(item),
@@ -4338,10 +4370,10 @@ inherits(SVGRenderer, Renderer, {
   style(el, item) {
     if (item == null) return;
 
-    for (const prop in styles) {
+    for (const prop in stylesAttr) {
       let value = prop === 'font' ? fontFamily(item) : item[prop];
       if (value === values[prop]) continue;
-      const name = styles[prop];
+      const name = stylesAttr[prop];
 
       if (value == null) {
         el.removeAttribute(name);
@@ -4354,6 +4386,10 @@ inherits(SVGRenderer, Renderer, {
       }
 
       values[prop] = value;
+    }
+
+    for (const prop in stylesCss) {
+      setStyle(el, stylesCss[prop], item[prop]);
     }
   },
 
@@ -4426,7 +4462,7 @@ function updateGradient(el, grad, index) {
     setAttributes(pt, {
       width: 1,
       height: 1,
-      fill: `url(${href()}#${grad.id})`
+      fill: "url(".concat(href(), "#").concat(grad.id, ")")
     });
     el = domChild(el, index++, 'radialGradient', svgns);
     setAttributes(el, {
@@ -4484,6 +4520,8 @@ function updateClipping(el, clip, index) {
 
 
 function recurse(renderer, el, group) {
+  // child 'g' element is second to last among children (path, g, path)
+  // other children here are foreground and background path elements
   el = el.lastChild.previousSibling;
   let prev,
       idx = 0;
@@ -4727,7 +4765,7 @@ inherits(SVGStringRenderer, Renderer, {
       class: 'marks',
       width: this._width * this._scale,
       height: this._height * this._scale,
-      viewBox: `0 0 ${this._width} ${this._height}`
+      viewBox: "0 0 ".concat(this._width, " ").concat(this._height)
     })); // background, if defined
 
     const bg = this._bgcolor;
@@ -4979,6 +5017,7 @@ inherits(SVGStringRenderer, Renderer, {
 }); // Helper function for attr for style presentation attributes
 
 function style(s, item, scene, tag, defs) {
+  let styleList;
   if (item == null) return s;
 
   if (tag === 'bgrect' && scene.interactive === false) {
@@ -4995,7 +5034,7 @@ function style(s, item, scene, tag, defs) {
   }
 
   if (tag === 'image' && item.smooth === false) {
-    s.style = 'image-rendering: optimizeSpeed; image-rendering: pixelated;';
+    styleList = ['image-rendering: optimizeSpeed;', 'image-rendering: pixelated;'];
   }
 
   if (tag === 'text') {
@@ -5006,9 +5045,9 @@ function style(s, item, scene, tag, defs) {
     s['font-weight'] = item.fontWeight;
   }
 
-  for (const prop in styles) {
+  for (const prop in stylesAttr) {
     let value = item[prop];
-    const name = styles[prop];
+    const name = stylesAttr[prop];
 
     if (value === 'transparent' && (name === 'fill' || name === 'stroke')) ; else if (value != null) {
       if (isGradient(value)) {
@@ -5017,6 +5056,19 @@ function style(s, item, scene, tag, defs) {
 
       s[name] = value;
     }
+  }
+
+  for (const prop in stylesCss) {
+    const value = item[prop];
+
+    if (value != null) {
+      styleList = styleList || [];
+      styleList.push("".concat(stylesCss[prop], ": ").concat(value, ";"));
+    }
+  }
+
+  if (styleList) {
+    s.style = styleList.join(' ');
   }
 
   return s;
@@ -5144,7 +5196,7 @@ function sceneEqual(a, b, key) {
   return a === b ? true : key === 'path' ? pathEqual(a, b) : a instanceof Date && b instanceof Date ? +a === +b : isNumber(a) && isNumber(b) ? Math.abs(a - b) <= TOLERANCE : !a || !b || !isObject(a) && !isObject(b) ? a == b : objectEqual(a, b);
 }
 function pathEqual(a, b) {
-  return sceneEqual(pathParse(a), pathParse(b));
+  return sceneEqual(parse(a), parse(b));
 }
 
 function objectEqual(a, b) {
@@ -5173,4 +5225,4 @@ function resetSVGDefIds() {
   resetSVGGradientId();
 }
 
-export { Bounds, CanvasHandler, CanvasRenderer, Gradient, GroupItem, Handler, Item, Marks, RenderType, Renderer, ResourceLoader, SVGHandler, SVGRenderer, SVGStringRenderer, Scenegraph, boundClip, boundContext, boundItem, boundMark, boundStroke, domChild, domClear, domCreate, domFind, font, fontFamily, fontSize, intersect, intersectBoxLine, intersectPath, intersectPoint, intersectRule, lineHeight, markup, multiLineOffset, curves as pathCurves, pathEqual, pathParse, vg_rect as pathRectangle, pathRender, symbols as pathSymbols, vg_trail as pathTrail, point, renderModule, resetSVGClipId, resetSVGDefIds, sceneEqual, sceneFromJSON, pickVisit as scenePickVisit, sceneToJSON, visit as sceneVisit, zorder as sceneZOrder, serializeXML, textMetrics };
+export { Bounds, CanvasHandler, CanvasRenderer, Gradient, GroupItem, Handler, Item, Marks, RenderType, Renderer, ResourceLoader, SVGHandler, SVGRenderer, SVGStringRenderer, Scenegraph, boundClip, boundContext, boundItem, boundMark, boundStroke, domChild, domClear, domCreate, domFind, font, fontFamily, fontSize, intersect, intersectBoxLine, intersectPath, intersectPoint, intersectRule, lineHeight, markup, multiLineOffset, curves as pathCurves, pathEqual, parse as pathParse, vg_rect as pathRectangle, pathRender, symbols as pathSymbols, vg_trail as pathTrail, point, renderModule, resetSVGClipId, resetSVGDefIds, sceneEqual, sceneFromJSON, pickVisit as scenePickVisit, sceneToJSON, visit as sceneVisit, zorder as sceneZOrder, serializeXML, textMetrics };

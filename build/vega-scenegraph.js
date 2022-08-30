@@ -2,7 +2,7 @@
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('vega-util'), require('d3-shape'), require('d3-path'), require('vega-canvas'), require('vega-loader'), require('vega-scale')) :
   typeof define === 'function' && define.amd ? define(['exports', 'vega-util', 'd3-shape', 'd3-path', 'vega-canvas', 'vega-loader', 'vega-scale'], factory) :
   (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.vega = {}, global.vega, global.d3, global.d3, global.vega, global.vega, global.vega));
-}(this, (function (exports, vegaUtil, d3Shape, d3Path, vegaCanvas, vegaLoader, vegaScale) { 'use strict';
+})(this, (function (exports, vegaUtil, d3Shape, d3Path, vegaCanvas, vegaLoader, vegaScale) { 'use strict';
 
   let gradient_id = 0;
   function resetSVGGradientId() {
@@ -149,56 +149,80 @@
     return curve;
   }
 
-  // Path parsing and rendering code adapted from fabric.js -- Thanks!
-  const cmdlen = {
+  const paramCounts = {
     m: 2,
     l: 2,
     h: 1,
     v: 1,
+    z: 0,
     c: 6,
     s: 4,
     q: 4,
     t: 2,
     a: 7
-  },
-        regexp = [/([MLHVCSQTAZmlhvcsqtaz])/g, /###/, /(\.\d+)(\.\d)/g, /(\d)([-+])/g, /\s|,|###/];
-  function pathParse (pathstr) {
-    const result = [];
-    let curr, chunks, parsed, param, cmd, len, i, j, n, m; // First, break path into command sequence
+  };
+  const commandPattern = /[mlhvzcsqta]([^mlhvzcsqta]+|$)/gi;
+  const numberPattern = /^[+-]?(([0-9]*\.[0-9]+)|([0-9]+\.)|([0-9]+))([eE][+-]?[0-9]+)?/;
+  const spacePattern = /^((\s+,?\s*)|(,\s*))/;
+  const flagPattern = /^[01]/;
+  function parse(path) {
+    const commands = [];
+    const matches = path.match(commandPattern) || [];
+    matches.forEach(str => {
+      let cmd = str[0];
+      const type = cmd.toLowerCase(); // parse parameters
 
-    const path = pathstr.slice().replace(regexp[0], '###$1').split(regexp[1]).slice(1); // Next, parse each command in turn
+      const paramCount = paramCounts[type];
+      const params = parseParams(type, paramCount, str.slice(1).trim());
+      const count = params.length; // error checking based on parameter count
 
-    for (i = 0, n = path.length; i < n; ++i) {
-      curr = path[i];
-      chunks = curr.slice(1).trim().replace(regexp[2], '$1###$2').replace(regexp[3], '$1###$2').split(regexp[4]);
-      cmd = curr.charAt(0);
-      parsed = [cmd];
+      if (count < paramCount || count && count % paramCount !== 0) {
+        throw Error('Invalid SVG path, incorrect parameter count');
+      } // register the command
 
-      for (j = 0, m = chunks.length; j < m; ++j) {
-        if ((param = +chunks[j]) === param) {
-          // not NaN
-          parsed.push(param);
-        }
+
+      commands.push([cmd, ...params.slice(0, paramCount)]); // exit now if we're done, also handles zero-param 'z'
+
+      if (count === paramCount) {
+        return;
+      } // handle implicit line-to
+
+
+      if (type === 'm') {
+        cmd = cmd === 'M' ? 'L' : 'l';
+      } // repeat command when given extended param list
+
+
+      for (let i = paramCount; i < count; i += paramCount) {
+        commands.push([cmd, ...params.slice(i, i + paramCount)]);
       }
+    });
+    return commands;
+  }
 
-      len = cmdlen[cmd.toLowerCase()];
+  function parseParams(type, paramCount, segment) {
+    const params = [];
 
-      if (parsed.length - 1 > len) {
-        const m = parsed.length;
-        j = 1;
-        result.push([cmd].concat(parsed.slice(j, j += len))); // handle implicit lineTo (#2803)
+    for (let index = 0; paramCount && index < segment.length;) {
+      for (let i = 0; i < paramCount; ++i) {
+        const pattern = type === 'a' && (i === 3 || i === 4) ? flagPattern : numberPattern;
+        const match = segment.slice(index).match(pattern);
 
-        cmd = cmd === 'M' ? 'L' : cmd === 'm' ? 'l' : cmd;
-
-        for (; j < m; j += len) {
-          result.push([cmd].concat(parsed.slice(j, j + len)));
+        if (match === null) {
+          throw Error('Invalid SVG path, incorrect parameter type');
         }
-      } else {
-        result.push(parsed);
+
+        index += match[0].length;
+        params.push(+match[0]);
+        const ws = segment.slice(index).match(spacePattern);
+
+        if (ws !== null) {
+          index += ws[0].length;
+        }
       }
     }
 
-    return result;
+    return params;
   }
 
   const DegToRad = Math.PI / 180;
@@ -345,7 +369,9 @@
     tempX,
         tempY,
         tempControlX,
-        tempControlY;
+        tempControlY,
+        anchorX = 0,
+        anchorY = 0;
     if (l == null) l = 0;
     if (t == null) t = 0;
     if (sX == null) sX = 1;
@@ -403,6 +429,8 @@
           // moveTo, relative
           x += current[1];
           y += current[2];
+          anchorX = x;
+          anchorY = y;
           context.moveTo(x + l, y + t);
           break;
 
@@ -410,6 +438,8 @@
           // moveTo, absolute
           x = current[1];
           y = current[2];
+          anchorX = x;
+          anchorY = y;
           context.moveTo(x + l, y + t);
           break;
 
@@ -552,6 +582,8 @@
 
         case 'z':
         case 'Z':
+          x = anchorX;
+          y = anchorY;
           context.closePath();
           break;
       }
@@ -715,7 +747,7 @@
 
   function customSymbol(path) {
     if (!vegaUtil.hasOwnProperty(custom, path)) {
-      const parsed = pathParse(path);
+      const parsed = parse(path);
       custom[path] = {
         draw: function (context, size) {
           pathRender(context, parsed, 0, 0, Math.sqrt(size) / 2);
@@ -2302,7 +2334,7 @@
         cache = item.pathCache;
 
     if (!cache || cache.path !== path) {
-      (item.pathCache = cache = pathParse(path)).path = path;
+      (item.pathCache = cache = parse(path)).path = path;
     }
 
     if (a && context.rotate && context.translate) {
@@ -3024,16 +3056,12 @@
     /**
      * Add an event handler. Subclasses should override this method.
      */
-    on()
-    /*type, handler*/
-    {},
+    on() {},
 
     /**
      * Remove an event handler. Subclasses should override this method.
      */
-    off()
-    /*type, handler*/
-    {},
+    off() {},
 
     /**
      * Utility method for finding the array index of an event handler.
@@ -3242,9 +3270,7 @@
      * incremental should implement this method.
      * @param {Item} item - The dirty item whose bounds should be redrawn.
      */
-    dirty()
-    /*item*/
-    {},
+    dirty() {},
 
     /**
      * Render an input scenegraph, potentially with a set of dirty items.
@@ -3278,9 +3304,7 @@
      * method to actually perform rendering.
      * @param {object} scene - The root mark of a scenegraph to render.
      */
-    _render()
-    /*scene*/
-    {// subclasses to override
+    _render() {// subclasses to override
     },
 
     /**
@@ -3984,11 +4008,9 @@
     }
 
     if (node.hasChildNodes()) {
-      const children = node.childNodes,
-            n = children.length;
+      const children = node.childNodes;
 
-      for (let i = 0; i < n; i++) {
-        const child = children[i];
+      for (const child of children) {
         child.nodeType === 3 // text node
         ? m.text(child.nodeValue) : _serialize(m, child);
       }
@@ -3997,7 +4019,7 @@
     return m.close();
   }
 
-  const styles = {
+  const stylesAttr = {
     fill: 'fill',
     fillOpacity: 'fill-opacity',
     stroke: 'stroke',
@@ -4008,7 +4030,9 @@
     strokeDash: 'stroke-dasharray',
     strokeDashOffset: 'stroke-dashoffset',
     strokeMiterLimit: 'stroke-miterlimit',
-    opacity: 'opacity',
+    opacity: 'opacity'
+  };
+  const stylesCss = {
     blend: 'mix-blend-mode'
   }; // ensure miter limit default is consistent with canvas (#2498)
 
@@ -4185,7 +4209,7 @@
      * @param {Item} item - The mark item.
      */
     isDirty(item) {
-      return this._dirtyAll || !item._svg || item.dirty === this._dirtyID;
+      return this._dirtyAll || !item._svg || !item._svg.ownerSVGElement || item.dirty === this._dirtyID;
     },
 
     /**
@@ -4262,13 +4286,14 @@
      * @param {SVGElement} prev - The previous sibling in the SVG tree.
      */
     mark(el, scene, prev) {
-      if (!this.isDirty(scene)) return scene._svg;
+      if (!this.isDirty(scene)) {
+        return scene._svg;
+      }
+
       const svg = this._svg,
             mdef = Marks[scene.marktype],
             events = scene.interactive === false ? 'none' : null,
             isGroup = mdef.tag === 'g';
-      let sibling = null,
-          i = 0;
       const parent = bind(scene, el, prev, 'g', svg);
       parent.setAttribute('class', cssClass(scene)); // apply aria attributes to parent container element
 
@@ -4281,6 +4306,8 @@
       }
 
       setAttribute(parent, 'clip-path', scene.clip ? clip$1(this, scene, scene.group) : null);
+      let sibling = null,
+          i = 0;
 
       const process = item => {
         const dirty = this.isDirty(item),
@@ -4337,10 +4364,10 @@
     style(el, item) {
       if (item == null) return;
 
-      for (const prop in styles) {
+      for (const prop in stylesAttr) {
         let value = prop === 'font' ? fontFamily(item) : item[prop];
         if (value === values[prop]) continue;
-        const name = styles[prop];
+        const name = stylesAttr[prop];
 
         if (value == null) {
           el.removeAttribute(name);
@@ -4353,6 +4380,10 @@
         }
 
         values[prop] = value;
+      }
+
+      for (const prop in stylesCss) {
+        setStyle(el, stylesCss[prop], item[prop]);
       }
     },
 
@@ -4483,6 +4514,8 @@
 
 
   function recurse(renderer, el, group) {
+    // child 'g' element is second to last among children (path, g, path)
+    // other children here are foreground and background path elements
     el = el.lastChild.previousSibling;
     let prev,
         idx = 0;
@@ -4978,6 +5011,7 @@
   }); // Helper function for attr for style presentation attributes
 
   function style(s, item, scene, tag, defs) {
+    let styleList;
     if (item == null) return s;
 
     if (tag === 'bgrect' && scene.interactive === false) {
@@ -4994,7 +5028,7 @@
     }
 
     if (tag === 'image' && item.smooth === false) {
-      s.style = 'image-rendering: optimizeSpeed; image-rendering: pixelated;';
+      styleList = ['image-rendering: optimizeSpeed;', 'image-rendering: pixelated;'];
     }
 
     if (tag === 'text') {
@@ -5005,9 +5039,9 @@
       s['font-weight'] = item.fontWeight;
     }
 
-    for (const prop in styles) {
+    for (const prop in stylesAttr) {
       let value = item[prop];
-      const name = styles[prop];
+      const name = stylesAttr[prop];
 
       if (value === 'transparent' && (name === 'fill' || name === 'stroke')) ; else if (value != null) {
         if (isGradient(value)) {
@@ -5016,6 +5050,19 @@
 
         s[name] = value;
       }
+    }
+
+    for (const prop in stylesCss) {
+      const value = item[prop];
+
+      if (value != null) {
+        styleList = styleList || [];
+        styleList.push(`${stylesCss[prop]}: ${value};`);
+      }
+    }
+
+    if (styleList) {
+      s.style = styleList.join(' ');
     }
 
     return s;
@@ -5143,7 +5190,7 @@
     return a === b ? true : key === 'path' ? pathEqual(a, b) : a instanceof Date && b instanceof Date ? +a === +b : vegaUtil.isNumber(a) && vegaUtil.isNumber(b) ? Math.abs(a - b) <= TOLERANCE : !a || !b || !vegaUtil.isObject(a) && !vegaUtil.isObject(b) ? a == b : objectEqual(a, b);
   }
   function pathEqual(a, b) {
-    return sceneEqual(pathParse(a), pathParse(b));
+    return sceneEqual(parse(a), parse(b));
   }
 
   function objectEqual(a, b) {
@@ -5172,6 +5219,10 @@
     resetSVGGradientId();
   }
 
+  Object.defineProperty(exports, 'path', {
+    enumerable: true,
+    get: function () { return d3Path.path; }
+  });
   exports.Bounds = Bounds;
   exports.CanvasHandler = CanvasHandler;
   exports.CanvasRenderer = CanvasRenderer;
@@ -5209,7 +5260,7 @@
   exports.multiLineOffset = multiLineOffset;
   exports.pathCurves = curves;
   exports.pathEqual = pathEqual;
-  exports.pathParse = pathParse;
+  exports.pathParse = parse;
   exports.pathRectangle = vg_rect;
   exports.pathRender = pathRender;
   exports.pathSymbols = symbols;
@@ -5229,4 +5280,4 @@
 
   Object.defineProperty(exports, '__esModule', { value: true });
 
-})));
+}));
